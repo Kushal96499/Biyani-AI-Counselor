@@ -5,6 +5,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Define Base Directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 class Settings(BaseSettings):
     APP_NAME: str = "College AI Chatbot"
     API_VERSION: str = "v1"
@@ -23,7 +26,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # Data Settings
-    KNOWLEDGE_BASE_PATH: str = "data/knowledge_base.json"
+    KNOWLEDGE_BASE_PATH: str = os.path.join(BASE_DIR, "data", "knowledge_base.json")
+    DATA_DIR: str = os.path.join(BASE_DIR, "data")
     
     # Security
     ADMIN_TOKEN: str = "admin_secret_token_123"

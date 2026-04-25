@@ -8,7 +8,7 @@ from app.logger import logger
 from app.utils import chunk_text
 
 class LiteRAGEngine:
-    def __init__(self, storage_path="data/knowledge_base.json"):
+    def __init__(self, storage_path=settings.KNOWLEDGE_BASE_PATH):
         self.storage_path = storage_path
         self.chunks = [] 
         self.load_knowledge()

@@ -1,31 +1,25 @@
 import os
 import sys
 
-# Ensure the 'api' folder is in the path for Vercel
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add root directory to sys.path so 'app' package is findable
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(root_dir)
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from api.routes import router
+from app.main import app as main_app
 
-app = FastAPI(title="Biyani AI Counselor API")
+# Create a wrapper app
+app = FastAPI(title="Biyani AI Counselor API Wrapper")
 
-# Configure CORS for Production
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Mount the main app under /api
+# This maps /api/(.*) to main_app/(.*)
+# So /api/chat calls main_app's /chat
+app.mount("/api", main_app)
 
-# Root check
-@app.get("/api/health")
+# Root check for health
+@app.get("/health")
 async def health():
-    return {"status": "healthy", "service": "Biyani AI API"}
-
-# Include the main logic routes
-app.include_router(router, prefix="/api")
+    return {"status": "healthy", "service": "Biyani AI API Wrapper"}
 
 # Export for Vercel
 handler = app

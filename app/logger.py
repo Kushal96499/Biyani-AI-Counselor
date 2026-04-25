@@ -3,9 +3,15 @@ import os
 from datetime import datetime
 
 # Ensure logs directory exists
-LOG_DIR = "logs"
+if os.environ.get("VERCEL"):
+    LOG_DIR = "/tmp/logs"
+else:
+    # Use absolute path for local logs too to be consistent
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    LOG_DIR = os.path.join(BASE_DIR, "logs")
+
 if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
+    os.makedirs(LOG_DIR, exist_ok=True)
 
 # Chat logging setup
 chat_logger = logging.getLogger("chat_logger")

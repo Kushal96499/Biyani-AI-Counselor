@@ -137,8 +137,9 @@ async def reindex(full: bool = False):
             logger.info(f"Skipping {len(indexed_sources)} already indexed sources.")
         
         # 1. Load Remote PDFs from all_pdf_links.txt
-        if os.path.exists("data/all_pdf_links.txt"):
-            with open("data/all_pdf_links.txt", "r") as f:
+        pdf_links_path = os.path.join(settings.DATA_DIR, "all_pdf_links.txt")
+        if os.path.exists(pdf_links_path):
+            with open(pdf_links_path, "r") as f:
                 all_links = [line.strip() for line in f if line.strip()]
             
             # Filter only new links
@@ -151,8 +152,9 @@ async def reindex(full: bool = False):
                 logger.info("No new remote PDFs to index.")
 
         # 2. Load Scraped Web Content
-        if os.path.exists("data/urls.txt"):
-            with open("data/urls.txt", "r") as f:
+        urls_path = os.path.join(settings.DATA_DIR, "urls.txt")
+        if os.path.exists(urls_path):
+            with open(urls_path, "r") as f:
                 all_urls = [line.strip() for line in f if line.strip()]
             
             new_urls = [u for u in all_urls if u not in indexed_sources]
@@ -160,7 +162,7 @@ async def reindex(full: bool = False):
                 logger.info(f"Indexing {len(new_urls)} new web URLs...")
                 # We need to temporarily write these new URLs to a file for scrape_urls
                 # Or modify scrape_urls to accept a list. Let's keep it simple.
-                temp_file = "data/temp_new_urls.txt"
+                temp_file = os.path.join(settings.DATA_DIR, "temp_new_urls.txt")
                 with open(temp_file, "w") as f:
                     for u in new_urls: f.write(u + "\n")
                 
@@ -171,7 +173,7 @@ async def reindex(full: bool = False):
                 logger.info("No new web URLs to index.")
         
         # 3. Load FAQs (Always refresh FAQs or skip if you prefer)
-        rag_engine.add_faqs("data/faqs.json")
+        rag_engine.add_faqs(os.path.join(settings.DATA_DIR, "faqs.json"))
         
         return {"status": "success", "message": f"Reindexing completed. Added new data while keeping existing index."}
     except Exception as e:

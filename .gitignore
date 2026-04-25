@@ -1,31 +1,22 @@
-# Secrets & Security
-.env
-*.log
-logs/
-.secret*
-
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
+*.py[cod]
+*$py.class
 venv/
-pip-log.txt
-pip-delete-this-directory.txt
+.env
+.pytest_cache/
 
-# Database & Storage
-chroma_db/
-chroma.sqlite3
-data/pdfs/
-data/knowledge_base.json
-data/vector_store.json
+# Logs
+logs/
+*.log
 
-# IDEs
-.vscode/
-.idea/
+# Data (Keep base data but ignore dynamic index if you want, 
+# but usually for Vercel you might want to keep the knowledge_base.json if it's pre-built)
+# data/knowledge_base.json
 
-# System
+# Vercel
+.vercel/
+
+# OS
 .DS_Store
 Thumbs.db
