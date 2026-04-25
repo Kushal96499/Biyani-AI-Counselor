@@ -78,8 +78,8 @@ graph TD
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/Kushal96499/college-chatbot.git
-   cd college-chatbot
+   git clone https://github.com/Kushal96499/Biyani-AI-Counselor
+   cd Biyani-AI-Counselor
    ```
 
 2. **Environment Configuration**:
