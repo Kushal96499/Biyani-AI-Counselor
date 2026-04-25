@@ -97,7 +97,7 @@ graph TD
    OPENROUTER_API_KEY=your_key
    ```
 
-3. **Run**:
+3. **Run Locally**:
    ```bash
    python -m uvicorn app.main:app --reload
    ```
