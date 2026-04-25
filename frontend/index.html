@@ -446,7 +446,7 @@
                 setMessages(p => [...p, { role: 'user', content: text }]);
                 setStatus('Consulting AI counselor...');
                 try {
-                    const res = await fetch('http://localhost:8000/chat', {
+                    const res = await fetch('/api/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ message: text, history: messages.slice(-6) })
@@ -500,7 +500,9 @@
                                                     <div className="w-full sm:max-w-[600px] mt-4 rounded-2xl overflow-hidden border border-gray-200 shadow-2xl bg-white group flex flex-col">
                                                         <div className="relative h-[300px] sm:h-[450px] bg-gray-50 flex items-center justify-center">
                                                             <iframe
-                                                                src={`http://localhost:8000/pdf-proxy?url=${encodeURIComponent(finalPdfUrl)}`}
+                                                                src={finalPdfUrl.toLowerCase().includes('.pdf') && !finalPdfUrl.includes('#')
+                                                                    ? `/api/pdf-proxy?url=${encodeURIComponent(finalPdfUrl)}` 
+                                                                    : finalPdfUrl}
                                                                 className="w-full h-full border-none"
                                                                 title="Document Preview"
                                                                 onError={(e) => {

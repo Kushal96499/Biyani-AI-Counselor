@@ -16,7 +16,8 @@ def load_pdfs_from_links(pdf_links: list):
             if response.status_code != 200:
                 logger.warning(f"Failed to download {url} (Status: {response.status_code})")
                 continue
-                
+            # --- STRICT MEMORY-ONLY PROCESSING ---
+            # We never save the PDF to disk. It stays in RAM as bytes.
             pdf_bytes = response.content
             full_text = ""
             
