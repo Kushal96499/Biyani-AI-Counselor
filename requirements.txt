@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pypdf
+pdfplumber
+beautifulsoup4
+requests
+python-dotenv
+slowapi
+cachetools
+pydantic
+pydantic-settings
+python-multipart
+gunicorn
