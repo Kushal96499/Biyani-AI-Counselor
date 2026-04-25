@@ -1,5 +1,8 @@
-# Secrets
+# Secrets & Security
 .env
+*.log
+logs/
+.secret*
 
 # Python
 __pycache__/
@@ -16,6 +19,8 @@ pip-delete-this-directory.txt
 chroma_db/
 chroma.sqlite3
 data/pdfs/
+data/knowledge_base.json
+data/vector_store.json
 
 # IDEs
 .vscode/

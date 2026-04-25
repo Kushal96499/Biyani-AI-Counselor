@@ -56,11 +56,23 @@ graph TD
 
 ## Core Features
 
-- **Advanced RAG Engine**: Utilizes Google Gemini to synthesize natural responses based strictly on 120+ verified institutional documents.
-- **Secure PDF Proxy**: A custom backend layer that streams raw bytes from institutional servers to bypass framing restrictions.
+- **Resilient Multi-Model Architecture**: A hybrid AI system utilizing **Google Gemini (Pro/Flash)** as primary intelligence, with **Groq (Llama 3)** and **OpenRouter** as high-speed fallback layers to ensure 100% uptime and quota resilience.
+- **Advanced RAG Engine**: Utilizes semantic search to synthesize natural responses based strictly on 120+ verified institutional documents.
+- **Secure PDF Proxy**: A custom backend layer that streams raw bytes from institutional servers to bypass framing restrictions (CSP).
 - **Real-time Typing Engine**: A synchronized character-by-character animation that enhances human-like interaction.
 - **Smart Document Detection**: Automatically triggers official document previews (Prospectus, Annual Reports) based on query intent.
 - **Responsive Mobile-First Design**: Optimized for seamless performance across all mobile and tablet viewports.
+
+---
+
+## Why Multi-Model?
+
+To ensure professional-grade reliability, the counselor rotates between different AI providers:
+1. **Gemini**: Primary model for complex institutional reasoning.
+2. **Groq**: Leveraged for sub-second response times during high traffic.
+3. **OpenRouter**: Acts as a universal bridge to ensure the service remains live even if primary API quotas are exhausted.
+
+---
 
 ---
 
