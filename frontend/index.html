@@ -23,6 +23,7 @@
             font-family: 'Outfit', sans-serif;
             background-color: #fff;
             height: 100vh;
+            height: 100dvh;
             width: 100vw;
             overflow: hidden;
             -webkit-font-smoothing: antialiased;
@@ -32,6 +33,7 @@
         .app-shell {
             display: flex;
             height: 100vh;
+            height: 100dvh;
             width: 100vw !important;
             background: #fff;
             position: fixed;
@@ -192,6 +194,7 @@
             left: 0;
             width: 100%;
             padding: 1.5rem 1rem;
+            padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
             pointer-events: none;
             z-index: 200;
             background: linear-gradient(to top, white 60%, transparent 100%);
@@ -300,7 +303,7 @@
         /* MOBILE OPTIMIZATIONS */
         @media (max-width: 640px) {
             .msg-scroll {
-                padding-bottom: 200px !important;
+                padding-bottom: 280px !important;
             }
 
             .bubble-ai,
@@ -548,7 +551,7 @@
                                     </div>
                                 )}
                                 {/* EXTRA SPACER TO PREVENT OVERLAP WITH FLOATING BAR */}
-                                <div ref={scrollRef} style={{ height: '240px', width: '100%' }} />
+                                <div ref={scrollRef} style={{ height: '280px', width: '100%' }} />
                             </div>
                         </div>
 

@@ -156,15 +156,13 @@ class LiteRAGEngine:
         context_text = "\n\n".join([c["text"] for c in relevant]) if relevant else "No context found."
 
         prompt = f"""
-You are a Senior Admission Counselor at Biyani Group of Colleges. 
-A student is asking for information. 
-
-STRICT RULES:
-1. NEVER say "data is not available" or "I notice information is missing". 
-2. NEVER mention boring technical stuff like "Section 5.2" or "AQAR reports".
-3. ALWAYS be a confident counselor. Even if exact stats are missing, talk about our dedicated placement cell, the soft-skills training, and the big brands like Wipro, Infosys, and HCL that recruit from us.
-4. Keep your answer under 100 words. Focus on being encouraging.
-5. ALWAYS say "I am showing you the official document right now" if a PDF is provided.
+Role: Senior Admission Counselor, Biyani Group of Colleges.
+Strict Guidelines:
+Tone: Confident, warm, encouraging human expert. Max 100 words.
+No Excuses: NEVER say "data unavailable", "I don't know", or "information is missing".
+No Jargon: NEVER use boring technical terms (e.g., AQAR, Section 5.2).
+Handle Missing Stats Smartly: If exact numbers or details are unknown, do not apologize. Confidently pivot the conversation by naturally highlighting our strong placement support, overall skill development, and excellent industry connections in your own words.
+PDF Rule: If sharing a PDF, ALWAYS state: "I am showing you the official document right now."
 
 KNOWLEDGE CONTEXT:
 {context_text}
@@ -196,12 +194,15 @@ COUNSELOR RESPONSE:"""
                     res = requests.post(self.api_url_groq, json=payload, headers={"Authorization": f"Bearer {self.groq_key}"}, timeout=8)
                     if res.status_code == 200:
                         return {"answer": res.json()["choices"][0]["message"]["content"].strip(), "pdf_url": pdf_url, "sources": [pdf_url] if pdf_url else []}
-                    elif res.status_code == 429: continue # Rate limit, try next model
-                except: continue
+                    else:
+                        logger.warning(f"Groq ({model}) failed: {res.status_code} - {res.text}")
+                except Exception as e:
+                    logger.error(f"Groq ({model}) error: {str(e)}")
+                    continue
 
         # --- PRIORITY 2: GOOGLE GEMINI (Reliable) ---
         if self.gemini_key:
-            gemini_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+            gemini_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
             for model in gemini_models:
                 try:
                     gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.gemini_key}"
@@ -214,20 +215,29 @@ COUNSELOR RESPONSE:"""
                     if res.status_code == 200:
                         answer = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                         return {"answer": answer.strip(), "pdf_url": pdf_url, "sources": [pdf_url] if pdf_url else []}
-                except: continue
+                    else:
+                        logger.warning(f"Gemini ({model}) failed: {res.status_code} - {res.text}")
+                except Exception as e:
+                    logger.error(f"Gemini ({model}) error: {str(e)}")
+                    continue
 
         # --- PRIORITY 3: OPENROUTER FREE MODELS (Ultimate Fallback) ---
         if self.openrouter_key:
             or_models = ["google/gemini-2.0-flash-lite-preview-02-05:free", "meta-llama/llama-3.3-70b-instruct:free"]
-            headers = {"Authorization": f"Bearer {self.openrouter_key}", "HTTP-Referer": "http://localhost:8000", "Content-Type": "application/json"}
+            headers = {"Authorization": f"Bearer {self.openrouter_key}", "HTTP-Referer": "https://biyani-ai-counselor.vercel.app", "Content-Type": "application/json"}
             for model in or_models:
                 try:
                     payload = {**base_payload, "model": model}
                     res = requests.post(self.api_url_openrouter, json=payload, headers=headers, timeout=15)
                     if res.status_code == 200:
                         return {"answer": res.json()["choices"][0]["message"]["content"].strip(), "pdf_url": pdf_url, "sources": [pdf_url] if pdf_url else []}
-                except: continue
+                    else:
+                        logger.warning(f"OpenRouter ({model}) failed: {res.status_code} - {res.text}")
+                except Exception as e:
+                    logger.error(f"OpenRouter ({model}) error: {str(e)}")
+                    continue
         
+        logger.error("All AI providers failed. Check API keys and quotas.")
         return {"answer": "All AI counselors are currently busy. Please try again in a moment.", "pdf_url": None, "sources": []}
 
 rag_engine = LiteRAGEngine()
