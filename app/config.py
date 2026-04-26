@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "College AI Chatbot"
     API_VERSION: str = "v1"
     
+    # NVIDIA NIM Configuration (Priority 1)
+    NVIDIA_API_KEY: Optional[str] = None
+
     # Groq Configuration
     GROQ_API_KEY: str
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
