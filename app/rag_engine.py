@@ -33,9 +33,10 @@ OR_KEY      = os.getenv("OPENROUTER_API_KEY", "")
 
 # ── Search Settings ───────────────────────────────────────────────────────────
 EMBED_MODEL      = "BAAI/bge-small-en-v1.5"
-BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+BGE_QUERY_PREFIX = "query: "
 RETRIEVAL_LIMIT  = 10
-SCORE_THRESHOLD  = 0.35  # Lowered for better discovery of related info
+SCORE_THRESHOLD  = 0.30  # Optimized for better discovery
+COLLECTION       = "biyani_ai_clean_v2"
 
 logger = logging.getLogger("rag_engine")
 
