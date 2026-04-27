@@ -15,7 +15,7 @@ import logging
 import requests
 from pathlib import Path
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 
 # ── Environment & Config ──────────────────────────────────────────────────────
@@ -143,15 +143,18 @@ class QdrantRAGEngine:
     def __init__(self):
         try:
             self._qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=25)
-            self._embedder = SentenceTransformer(EMBED_MODEL)
-            logger.info("Precision Engine Online.")
+            # FastEmbed is lightweight (100MB) vs SentenceTransformers (4GB+)
+            self._embedder = TextEmbedding(model_name=EMBED_MODEL, cache_dir="/tmp")
+            logger.info("FastEmbed Engine Online.")
         except Exception as e:
             logger.error(f"Init Error: {e}")
 
     def _retrieve(self, query: str) -> list[dict]:
         if not self._qdrant or not self._embedder: return []
-        vec = self._embedder.encode(BGE_QUERY_PREFIX + query, normalize_embeddings=True).tolist()
         try:
+            # FastEmbed uses a generator for efficiency
+            vec = list(self._embedder.embed([BGE_QUERY_PREFIX + query]))[0].tolist()
+            
             # Multi-method safe search
             hits = []
             if hasattr(self._qdrant, "search"):

@@ -9,9 +9,9 @@ pydantic
 pydantic-settings
 python-multipart
 
-# Qdrant + AI
+# Qdrant + AI (Lightweight for Vercel)
 qdrant-client
-sentence-transformers
+fastembed
 
 # Content Processing
 pypdf
