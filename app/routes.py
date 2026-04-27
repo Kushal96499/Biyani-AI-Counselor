@@ -16,8 +16,8 @@ from cachetools import TTLCache
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
-# In-memory cache for repeated queries (TTL of 1 hour)
-chat_cache = TTLCache(maxsize=1000, ttl=3600)
+# Per-session conversation history (keyed by IP)
+# chat_cache intentionally removed — cached answers ignore session context
 
 class ChatRequest(BaseModel):
     message: str
@@ -52,29 +52,30 @@ chat_history = {}
 async def chat(request: Request, body: ChatRequest):
     start_time = time.time()
     user_msg = body.message.strip()
-    session_id = request.client.host # Simple session tracking by IP
-    
+
     if not user_msg:
         raise HTTPException(status_code=400, detail="Empty message")
 
-    # Initialize history for session
+    # Session tracking by IP (simple, stateless-friendly)
+    session_id = getattr(request.client, "host", "unknown")
     if session_id not in chat_history:
         chat_history[session_id] = []
 
-    # Process via RAG with history (Cache bypassed for testing)
-    result = rag_engine.query(user_msg, history=chat_history[session_id])
-    
-    # Update history (keep only last 6 messages to stay within token limits)
-    chat_history[session_id].append({"role": "user", "content": user_msg})
-    chat_history[session_id].append({"role": "assistant", "content": result["answer"]})
-    chat_history[session_id] = chat_history[session_id][-6:]
+    # Pass last 3 turns (6 messages) as history context
+    history_window = chat_history[session_id][-6:]
 
-    # Store in cache
-    chat_cache[user_msg] = result
-    
+    # Query the RAG engine
+    result = rag_engine.query(user_msg, history=history_window)
+
+    # Append this turn to session history
+    chat_history[session_id].append({"role": "user",      "content": user_msg})
+    chat_history[session_id].append({"role": "assistant", "content": result["answer"]})
+    # Keep last 10 messages (~5 turns) to bound memory
+    chat_history[session_id] = chat_history[session_id][-10:]
+
     response_time = time.time() - start_time
     log_chat(user_msg, result["answer"], response_time)
-    
+
     return result
 
 from fastapi.responses import StreamingResponse

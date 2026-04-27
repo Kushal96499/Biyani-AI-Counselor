@@ -1,8 +1,6 @@
 fastapi
 uvicorn
-pypdf
-pdfplumber
-beautifulsoup4
+gunicorn
 requests
 python-dotenv
 slowapi
@@ -10,4 +8,12 @@ cachetools
 pydantic
 pydantic-settings
 python-multipart
-gunicorn
+
+# Qdrant + AI
+qdrant-client
+sentence-transformers
+
+# Content Processing
+pypdf
+pdfplumber
+beautifulsoup4

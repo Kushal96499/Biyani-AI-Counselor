@@ -1,110 +1,64 @@
-# Biyani AI Counselor | Intelligent Institutional Assistant
+# 🎓 Biyani AI Counselor - Premium RAG Chatbot
 
-[![Deployment](https://img.shields.io/badge/Deployment-Live-green?style=flat-square)](https://your-deployment-link.com)
-[![Build](https://img.shields.io/badge/Build-Optimized-blue?style=flat-square)](https://vitejs.dev/)
-[![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](https://opensource.org/licenses/MIT)
+A high-intelligence, multi-provider RAG (Retrieval-Augmented Generation) chatbot designed for the Biyani Group of Colleges. It provides accurate information about admissions, courses, fees, and campus details using a smart model-switching architecture.
 
-> "Bridging the gap between institutional knowledge and student aspirations through a resilient, multi-model RAG ecosystem."
+## 🚀 Key Features
 
-[LinkedIn](https://www.linkedin.com/in/kushal-ku/) • [Source Code](https://github.com/Kushal96499/Biyani-AI-Counselor) • [Institutional Website](https://www.biyanicolleges.org)
+- **Gold 6 Model Stack**: Intelligent switching between 4 providers (Groq, Gemini, NVIDIA, OpenRouter) for maximum reliability and intelligence.
+- **Smart RAG Engine**: Advanced semantic search using Qdrant Vector Database and `BGE-Small` embeddings.
+- **Natural Personality**: Professional yet warm Academic Counselor persona that bridges information gaps intelligently.
+- **Language Intelligence**: Seamlessly detects and responds in English or natural Hinglish based on the user's input.
+- **Smart Model Selector**: Automatically chooses between 70B+ models for complex queries and faster 8B models for simple ones.
 
----
+## 🛠️ Tech Stack
 
-## The Engineering Philosophy
+- **Backend**: FastAPI (Python 3.10+)
+- **Vector DB**: Qdrant Cloud
+- **Embeddings**: BAAI/bge-small-en-v1.5 (Local)
+- **LLM Providers**:
+  - **GROQ**: Llama 3.3 70B & 3.1 8B (Speed)
+  - **GEMINI**: 2.5 Flash & Flash Lite (Reasoning)
+  - **NVIDIA**: Mistral Large 3 (675B) & Dracarys 70B (Power)
+  - **OPENROUTER**: Nemotron 120B (Stability)
 
-In the era of information overload, the **Biyani AI Counselor** serves as a precision-first guidance hub. Developed during the 3rd year of BCA at Biyani Group of Colleges, this system replaces static FAQ pages with a high-craft, resilient AI environment. By leveraging **Retrieval-Augmented Generation (RAG)** and a custom **Secure PDF Proxy**, it ensures that official institutional data is accessible, verified, and engaging.
+## 📦 Installation
 
----
-
-## 🚀 Intelligent Multi-Model Strategy
-
-To ensure 100% uptime and sub-second response times, the counselor utilizes a sophisticated multi-model rotation strategy:
-
-1.  **Google Gemini 1.5 Pro/Flash**: The primary "Academic Brain." It handles complex institutional reasoning and executes high-precision OCR on scanned PDFs.
-2.  **Groq (Llama 3 70B/8B)**: Integrated for ultra-low latency. Groq provides lightning-fast responses (sub-500ms) during peak traffic or as a high-speed fallback.
-3.  **OpenRouter**: Serves as a universal gateway to ensure the service remains live even if primary API quotas from Google or Groq are exhausted.
-
----
-
-## 🏗️ Technical Architecture
-
-The system utilizes a distributed RAG architecture designed for institutional reliability.
-
-```mermaid
-graph TD
-    User((Student/User)) -->|HTTPS Query| Frontend[Modern UI / React Core]
-    Frontend -->|POST /chat| API[FastAPI Backend]
-    
-    subgraph "Intelligence Layer"
-    API -->|Semantic Search| JSON[(JSON Knowledge Base)]
-    API -->|Context Injection| MultiAI[Gemini + Groq + Llama 3]
-    end
-    
-    subgraph "Data & Security"
-    API -->|URL Signing| Proxy[Secure PDF Proxy]
-    Proxy -->|Bypass CSP| Docs[Official PDFs & Flipbooks]
-    end
-    
-    MultiAI -->|Streaming Response| API
-    API -->|Typed Animation| Frontend
-    Frontend -->|Interactive Preview| User
-```
-
----
-
-## ⚡ Core Features
-
-- **Resilient RAG Engine**: A hybrid semantic search system that synthesizes responses based on 120+ verified institutional documents.
-- **Secure PDF Proxy**: A custom backend layer that streams raw bytes to bypass restrictive Content Security Policies (CSP) and 'frame-ancestors' blocks.
-- **Vision-Powered OCR**: Automatically extracts text from legacy or scanned PDF documents using Gemini's multi-modal capabilities.
-- **Interactive UI/UX**: Includes character-by-character typing animation (10ms speed) and glassmorphism design elements.
-- **Smart Document Triggering**: Intelligently displays official Brochures or Placement Reports only when relevant to the user's query.
-
----
-
-## 🛠️ Detailed Tech Stack
-
-### Backend & AI
-- **Framework**: FastAPI (Python 3.10+)
-- **LLM APIs**: Google Gemini API, Groq Cloud, OpenRouter.
-- **Vector Engine**: Custom JSON-based Semantic Store (Lite-RAG).
-- **Processing**: LangChain, PyPDF2, OCR (Vision AI).
-
-### Frontend
-- **Core**: Modern React Hooks architecture.
-- **Styling**: Vanilla CSS3 with Custom Design System tokens.
-- **Animations**: CSS Transitions + Framer-inspired sequencing.
-
-### Infrastructure
-- **Security**: CORS/CSP Proxy, Environment-based Secret Management.
-- **Documentation**: Professional MIT Licensing, Technical README.
-
----
-
-## 📜 Installation
-
-1. **Clone & Install**:
+1. **Clone the repository**:
    ```bash
    git clone https://github.com/Kushal96499/Biyani-AI-Counselor.git
+   cd Biyani-AI-Counselor
+   ```
+
+2. **Set up Virtual Environment**:
+   ```bash
+   python -m venv venv
+   # On Windows:
+   .\venv\Scripts\activate
+   ```
+
+3. **Install Dependencies**:
+   ```bash
    pip install -r requirements.txt
    ```
 
-2. **Environment Setup**:
-   Rename `.env.example` to `.env` and add your API keys:
+4. **Environment Variables**:
+   Create a `.env` file and add your keys:
    ```env
-   GEMINI_API_KEY=your_key
+   QDRANT_URL=your_qdrant_url
+   QDRANT_API_KEY=your_key
    GROQ_API_KEY=your_key
+   GEMINI_API_KEY=your_key
+   NVIDIA_API_KEY=your_key
    OPENROUTER_API_KEY=your_key
    ```
 
-3. **Run Locally**:
-   ```bash
-   python -m uvicorn app.main:app --reload
-   ```
+## 🌐 Deployment (Vercel)
+
+This project is configured for Vercel Serverless Functions.
+
+1. Install Vercel CLI: `npm i -g vercel`
+2. Run `vercel login` and `vercel` to deploy.
+3. Ensure all Environment Variables are added in the Vercel Dashboard.
 
 ---
-
-<p align="center">
-  Developed with ❤️ by <b>Kushal Kumawat</b> <br/>
-  <i>Biyani Group of Colleges • Excellence Since 2005</i>
-</p>
+Built with ❤️ for Biyani Group of Colleges.

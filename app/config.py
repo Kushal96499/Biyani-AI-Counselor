@@ -9,28 +9,31 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class Settings(BaseSettings):
-    APP_NAME: str = "College AI Chatbot"
+    APP_NAME: str = "Biyani AI Counselor"
     API_VERSION: str = "v1"
     
+    # Qdrant Cloud Configuration
+    QDRANT_URL: Optional[str] = None
+    QDRANT_API_KEY: Optional[str] = None
+    QDRANT_COLLECTION: str = "biyani_ai_clean_v2"
+
     # NVIDIA NIM Configuration (Priority 1)
     NVIDIA_API_KEY: Optional[str] = None
 
     # Groq Configuration
-    GROQ_API_KEY: str
+    GROQ_API_KEY: Optional[str] = None
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     
-    # Gemini Configuration (Optional now)
+    # Gemini Configuration
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-1.5-flash"
-
     
+    # OpenRouter
+    OPENROUTER_API_KEY: Optional[str] = None
+
     # App Settings
     APP_ENV: str = "production"
     DEBUG: bool = False
-    
-    # Data Settings
-    KNOWLEDGE_BASE_PATH: str = os.path.join(BASE_DIR, "data", "knowledge_base.json")
-    DATA_DIR: str = os.path.join(BASE_DIR, "data")
     
     # Security
     ADMIN_TOKEN: str = "admin_secret_token_123"
