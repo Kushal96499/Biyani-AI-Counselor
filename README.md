@@ -1,20 +1,46 @@
 # 🎓 Biyani AI Counselor - Premium RAG Chatbot
 
-A high-intelligence, multi-provider RAG (Retrieval-Augmented Generation) chatbot designed for the Biyani Group of Colleges. It provides accurate information about admissions, courses, fees, and campus details using a smart model-switching architecture.
+A high-intelligence, multi-provider RAG (Retrieval-Augmented Generation) chatbot designed for the Biyani Group of Colleges. This system utilizes a distributed architecture designed for low latency and high availability.
+
+## 🏗️ Technical Architecture & Workflow
+
+The system follows a modern RAG pipeline with a tiered LLM stack to ensure 100% uptime and high reasoning capabilities.
+
+```mermaid
+graph TD
+    User([User/Student]) -->|HTTPS| Web[Frontend: HTML/JS/React]
+    Web -->|API Request| Backend[FastAPI Backend - Vercel]
+    
+    subgraph "RAG Intelligence Core"
+        Backend -->|Query| Embedder[FastEmbed: BGE-Small]
+        Embedder -->|Vector Search| Qdrant[(Qdrant Cloud Vector DB)]
+        Qdrant -->|Context Retrieval| Selector{Smart Model Selector}
+    end
+
+    subgraph "Tiered LLM Stack"
+        Selector -->|Priority 1| Groq[Groq: Llama 3.3 70B]
+        Selector -->|Priority 2| Gemini[Google: Gemini 2.5 Flash]
+        Selector -->|Priority 3| NVIDIA[NVIDIA: Mistral Large 675B]
+        Selector -->|Fallback| OR[OpenRouter: Nemotron 120B]
+    end
+
+    Groq & Gemini & NVIDIA & OR -->|AI Response| Backend
+    Backend -->|Final Answer| User
+```
 
 ## 🚀 Key Features
 
-- **Gold 6 Model Stack**: Intelligent switching between 4 providers (Groq, Gemini, NVIDIA, OpenRouter) for maximum reliability and intelligence.
-- **Smart RAG Engine**: Advanced semantic search using Qdrant Vector Database and `BGE-Small` embeddings.
-- **Natural Personality**: Professional yet warm Academic Counselor persona that bridges information gaps intelligently.
-- **Language Intelligence**: Seamlessly detects and responds in English or natural Hinglish based on the user's input.
-- **Smart Model Selector**: Automatically chooses between 70B+ models for complex queries and faster 8B models for simple ones.
+- **Gold 6 Model Stack**: Intelligent switching between 4 providers (Groq, Gemini, NVIDIA, OpenRouter).
+- **Vercel Optimized**: Lightweight `FastEmbed` implementation for < 500MB bundle size.
+- **Smart RAG Engine**: Semantic search using Qdrant Vector Database.
+- **Natural Personality**: Professional yet warm Academic Counselor persona.
+- **Language Intelligence**: Seamlessly detects and responds in English or natural Hinglish.
 
 ## 🛠️ Tech Stack
 
 - **Backend**: FastAPI (Python 3.10+)
 - **Vector DB**: Qdrant Cloud
-- **Embeddings**: BAAI/bge-small-en-v1.5 (Local)
+- **Embeddings**: BAAI/bge-small-en-v1.5 via `fastembed`
 - **LLM Providers**:
   - **GROQ**: Llama 3.3 70B & 3.1 8B (Speed)
   - **GEMINI**: 2.5 Flash & Flash Lite (Reasoning)
@@ -32,7 +58,6 @@ A high-intelligence, multi-provider RAG (Retrieval-Augmented Generation) chatbot
 2. **Set up Virtual Environment**:
    ```bash
    python -m venv venv
-   # On Windows:
    .\venv\Scripts\activate
    ```
 
@@ -58,7 +83,7 @@ This project is configured for Vercel Serverless Functions.
 
 1. Install Vercel CLI: `npm i -g vercel`
 2. Run `vercel login` and `vercel` to deploy.
-3. Ensure all Environment Variables are added in the Vercel Dashboard.
+3. Add Environment Variables in the Vercel Dashboard.
 
 ---
 Built with ❤️ for Biyani Group of Colleges.

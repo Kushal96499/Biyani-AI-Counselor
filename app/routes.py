@@ -40,13 +40,25 @@ async def health_check():
 
 @router.get("/debug")
 async def debug_status():
+    q_status = "NOT_INITIALIZED"
+    collections = []
+    try:
+        if rag_engine._qdrant:
+            # Try a simple call to verify connection
+            cols = rag_engine._qdrant.get_collections()
+            collections = [c.name for c in cols.collections]
+            q_status = "CONNECTED"
+    except Exception as e:
+        q_status = f"ERROR: {str(e)}"
+
     return {
         "groq_key": "Present" if settings.GROQ_API_KEY else "MISSING",
         "gemini_key": "Present" if settings.GEMINI_API_KEY else "MISSING",
-        "nvidia_key": "Present" if settings.NVIDIA_API_KEY else "MISSING",
         "qdrant_url": "Present" if settings.QDRANT_URL else "MISSING",
-        "rag_engine_status": "Ready" if rag_engine._qdrant and rag_engine._embedder else "NOT_INITIALIZED",
-        "env": os.getenv("APP_ENV", "development")
+        "qdrant_connection": q_status,
+        "available_collections": collections,
+        "rag_engine_ready": "Yes" if rag_engine._qdrant else "No",
+        "env": os.getenv("APP_ENV", "production")
     }
 
 @router.get("/welcome")
