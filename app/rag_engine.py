@@ -67,13 +67,14 @@ def _get_pdf_url(query: str) -> str | None:
 # ── LLM Core ──────────────────────────────────────────────────────────────────
 def _call_llm(messages: list[dict], query: str = "", num_chunks: int = 0) -> str | None:
     """
-    Smart Model Selector following the Final Recommended Model Stack:
-    1. GROQ (Primary - Fast) -> llama-3.3-70b (Complex) or llama-3.1-8b (Simple)
-    2. GEMINI (Secondary - Smart) -> gemini-2.0-flash (Long/Complex)
-    3. NVIDIA (Backup) -> llama-3.1-70b or 8b
-    4. OPENROUTER (Final Fallback - Free)
+    Smart Model Selector with Repetition Prevention.
     """
-    payload = {"messages": messages, "temperature": 0.3, "max_tokens": 1000}
+    payload = {
+        "messages": messages, 
+        "temperature": 0.2, 
+        "max_tokens": 1000,
+        "presence_penalty": 0.1
+    }
     
     # ── Logic Helpers ──
     is_complex = any(word in query.lower() for word in ["fees", "admission", "eligibility", "scholarship", "process", "placement", "hostel", "structure"]) or len(query.split()) > 15
@@ -141,21 +142,36 @@ def _call_llm(messages: list[dict], query: str = "", num_chunks: int = 0) -> str
 # ── RAG Engine ────────────────────────────────────────────────────────────────
 class QdrantRAGEngine:
     def __init__(self):
+        self._qdrant = None
+        self._embedder = None
         try:
             self._qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=25)
-            # FastEmbed is lightweight (100MB) vs SentenceTransformers (4GB+)
-            self._embedder = TextEmbedding(model_name=EMBED_MODEL, cache_dir="/tmp")
-            logger.info("FastEmbed Engine Online.")
+            logger.info("Qdrant Client Initialized.")
         except Exception as e:
-            logger.error(f"Init Error: {e}")
+            logger.error(f"Qdrant Init Error: {e}")
+
+    def _get_embedder(self):
+        """Lazy loading of the embedder to prevent Vercel startup timeouts."""
+        if self._embedder is None:
+            try:
+                logger.info(f"Loading FastEmbed model: {EMBED_MODEL}...")
+                self._embedder = TextEmbedding(model_name=EMBED_MODEL, cache_dir="/tmp")
+                logger.info("FastEmbed model loaded successfully.")
+            except Exception as e:
+                logger.error(f"Embedder Loading Failed: {e}")
+                return None
+        return self._embedder
 
     def _retrieve(self, query: str) -> list[dict]:
-        if not self._qdrant or not self._embedder: return []
-        try:
-            # FastEmbed uses a generator for efficiency
-            vec = list(self._embedder.embed([BGE_QUERY_PREFIX + query]))[0].tolist()
+        embedder = self._get_embedder()
+        if not self._qdrant or not embedder:
+            logger.error(f"Search aborted: Qdrant={bool(self._qdrant)}, Embedder={bool(embedder)}")
+            return []
             
-            # Multi-method safe search
+        try:
+            # FastEmbed uses a generator
+            vec = list(embedder.embed([BGE_QUERY_PREFIX + query]))[0].tolist()
+            
             hits = []
             if hasattr(self._qdrant, "search"):
                 hits = self._qdrant.search(collection_name=COLLECTION, query_vector=vec, limit=RETRIEVAL_LIMIT, score_threshold=SCORE_THRESHOLD, with_payload=True)
@@ -223,7 +239,8 @@ class QdrantRAGEngine:
             "2. SMART BRIDGING: If the exact info (like BCA fees) is missing, but related info (BBA fees) is available, offer it naturally while being honest about the gap.\n"
             f"3. PERSONA: Sound like a helpful human, not a bot. {tone_instruction}\n"
             "4. CALL TO ACTION: Always provide the helpline 0141-2338591 for specific details.\n"
-            "5. NO HALLUCINATION: Answer strictly from context."
+            "5. NO HALLUCINATION: Answer strictly from context.\n"
+            "6. NO REPETITION: Avoid repeating the same names or phrases multiple times. If the context contains long repetitive lists, summarize them into a professional paragraph."
         )
 
         messages = [{"role": "system", "content": system}]

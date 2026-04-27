@@ -13,7 +13,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from cachetools import TTLCache
 
-router = APIRouter()
+router = APIRouter(redirect_slashes=True)
 limiter = Limiter(key_func=get_remote_address)
 
 # Per-session conversation history (keyed by IP)
@@ -61,33 +61,43 @@ chat_history = {}
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
 async def chat(request: Request, body: ChatRequest):
-    start_time = time.time()
-    user_msg = body.message.strip()
+    try:
+        start_time = time.time()
+        user_msg = body.message.strip()
 
-    if not user_msg:
-        raise HTTPException(status_code=400, detail="Empty message")
+        if not user_msg:
+            raise HTTPException(status_code=400, detail="Empty message")
 
-    # Session tracking by IP (simple, stateless-friendly)
-    session_id = getattr(request.client, "host", "unknown")
-    if session_id not in chat_history:
-        chat_history[session_id] = []
+        # Session tracking
+        session_id = getattr(request.client, "host", "unknown")
+        if session_id not in chat_history:
+            chat_history[session_id] = []
 
-    # Pass last 3 turns (6 messages) as history context
-    history_window = chat_history[session_id][-6:]
+        history_window = chat_history[session_id][-6:]
 
-    # Query the RAG engine
-    result = rag_engine.query(user_msg, history=history_window)
+        # Query the RAG engine
+        result = rag_engine.query(user_msg, history=history_window)
+        
+        if not result or not result.get("answer"):
+            raise Exception("RAG Engine returned empty response")
 
-    # Append this turn to session history
-    chat_history[session_id].append({"role": "user",      "content": user_msg})
-    chat_history[session_id].append({"role": "assistant", "content": result["answer"]})
-    # Keep last 10 messages (~5 turns) to bound memory
-    chat_history[session_id] = chat_history[session_id][-10:]
+        # History and Logging
+        chat_history[session_id].append({"role": "user",      "content": user_msg})
+        chat_history[session_id].append({"role": "assistant", "content": result["answer"]})
+        chat_history[session_id] = chat_history[session_id][-10:]
 
-    response_time = time.time() - start_time
-    log_chat(user_msg, result["answer"], response_time)
+        response_time = time.time() - start_time
+        log_chat(user_msg, result["answer"], response_time)
 
-    return result
+        return result
+    except Exception as e:
+        logger.error(f"CRITICAL CHAT ERROR: {str(e)}")
+        # Returning error details helps us fix the 500 issue
+        return {
+            "answer": f"Backend Error: {str(e)}. Please check Vercel Logs.",
+            "sources": [],
+            "pdf_url": None
+        }
 
 from fastapi.responses import StreamingResponse
 import requests

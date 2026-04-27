@@ -17,7 +17,7 @@ if not os.path.exists(LOG_DIR):
 chat_logger = logging.getLogger("chat_logger")
 chat_logger.setLevel(logging.INFO)
 
-chat_handler = logging.FileHandler(os.path.join(LOG_DIR, "chat.log"))
+chat_handler = logging.FileHandler(os.path.join(LOG_DIR, "chat.log"), encoding='utf-8')
 chat_formatter = logging.Formatter('%(asctime)s - %(message)s')
 chat_handler.setFormatter(chat_formatter)
 chat_logger.addHandler(chat_handler)
@@ -28,7 +28,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(os.path.join(LOG_DIR, "system.log"))
+        logging.FileHandler(os.path.join(LOG_DIR, "system.log"), encoding='utf-8')
     ]
 )
 

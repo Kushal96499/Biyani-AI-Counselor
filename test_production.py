@@ -9,7 +9,7 @@ def test_system():
 
     # 1. Health Check
     try:
-        r = requests.get(f"{base_url}/health", timeout=5)
+        r = requests.get(f"{base_url}/api/health", timeout=5)
         if r.status_code == 200:
             print("✅ Health Check: OK")
         else:
@@ -23,7 +23,7 @@ def test_system():
     payload = {"message": "BCA ki fees kya hai?"}
     t1 = time.time()
     try:
-        r = requests.post(f"{base_url}/chat", json=payload, timeout=15)
+        r = requests.post(f"{base_url}/api/chat", json=payload, timeout=15)
         if r.status_code == 200:
             data = r.json()
             print(f"✅ Hinglish Response Received ({time.time()-t1:.2f}s)")
@@ -38,7 +38,7 @@ def test_system():
     payload = {"message": "Tell me about the admission process for MBA."}
     t1 = time.time()
     try:
-        r = requests.post(f"{base_url}/chat", json=payload, timeout=15)
+        r = requests.post(f"{base_url}/api/chat", json=payload, timeout=15)
         if r.status_code == 200:
             data = r.json()
             print(f"✅ English Response Received ({time.time()-t1:.2f}s)")
@@ -52,7 +52,7 @@ def test_system():
     print("\n🔍 Testing PDF Trigger...")
     payload = {"message": "Can I see the placement brochure?"}
     try:
-        r = requests.post(f"{base_url}/chat", json=payload, timeout=15)
+        r = requests.post(f"{base_url}/api/chat", json=payload, timeout=15)
         data = r.json()
         if data.get("pdf_url"):
             print(f"✅ PDF Trigger: SUCCESS ({data['pdf_url']})")

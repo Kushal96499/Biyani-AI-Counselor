@@ -20,38 +20,39 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS configuration
+# CORS configuration - Relaxed for Localhost & Vercel
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Serve Frontend Static Files
+# 1. Include API routes (High Priority)
+app.include_router(router, prefix="/api")
+
+# 2. Serve Static Assets
 frontend_path = os.path.join(os.getcwd(), "frontend")
 assets_path = os.path.join(frontend_path, "assets")
-
 if os.path.exists(assets_path):
     app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
+# 3. Favicon mapping
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    favicon_path = os.path.join(assets_path, "Biyani_college_logo.jpg")
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path)
+    return {"detail": "favicon not found"}
+
+# 4. Root Page (Lowest Priority)
 @app.get("/")
 async def read_index():
     index_file = os.path.join(frontend_path, "index.html")
     if os.path.exists(index_file):
         return FileResponse(index_file)
     return {"detail": "Frontend index.html not found"}
-
-# Include API routes with /api prefix
-app.include_router(router, prefix="/api")
-
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    favicon_path = os.path.join(frontend_path, "assets", "Biyani_college_logo.jpg")
-    if os.path.exists(favicon_path):
-        return FileResponse(favicon_path)
-    return {"detail": "favicon not found"}
 
 @app.on_event("startup")
 async def startup_event():
