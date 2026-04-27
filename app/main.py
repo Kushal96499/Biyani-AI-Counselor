@@ -43,8 +43,15 @@ async def read_index():
         return FileResponse(index_file)
     return {"detail": "Frontend index.html not found"}
 
-# Include API routes
-app.include_router(router)
+# Include API routes with /api prefix
+app.include_router(router, prefix="/api")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    favicon_path = os.path.join(frontend_path, "assets", "Biyani_college_logo.jpg")
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path)
+    return {"detail": "favicon not found"}
 
 @app.on_event("startup")
 async def startup_event():
