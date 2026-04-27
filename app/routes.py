@@ -38,6 +38,17 @@ def verify_admin(x_admin_token: Optional[str] = Header(None)):
 async def health_check():
     return {"status": "ok"}
 
+@router.get("/debug")
+async def debug_status():
+    return {
+        "groq_key": "Present" if settings.GROQ_API_KEY else "MISSING",
+        "gemini_key": "Present" if settings.GEMINI_API_KEY else "MISSING",
+        "nvidia_key": "Present" if settings.NVIDIA_API_KEY else "MISSING",
+        "qdrant_url": "Present" if settings.QDRANT_URL else "MISSING",
+        "rag_engine_status": "Ready" if rag_engine._qdrant and rag_engine._embedder else "NOT_INITIALIZED",
+        "env": os.getenv("APP_ENV", "development")
+    }
+
 @router.get("/welcome")
 async def welcome():
     return {
