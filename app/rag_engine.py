@@ -19,11 +19,7 @@ from dotenv import load_dotenv
 from google import genai
 from qdrant_client import QdrantClient
 
-# FastEmbed is optional — used only as local fallback
-try:
-    _FASTEMBED_AVAILABLE = False
-except ImportError:
-    _FASTEMBED_AVAILABLE = False
+
 
 # ── Load Environment ──────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,15 +34,9 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 NVIDIA_KEY = os.getenv("NVIDIA_API_KEY", "")
 OR_KEY     = os.getenv("OPENROUTER_API_KEY", "")
 
-# ── Model & Search Config ─────────────────────────────────────────────────────
-EMBED_MODEL      = "BAAI/bge-small-en-v1.5"
-BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+# Search Config
 RETRIEVAL_LIMIT  = 8
 SCORE_THRESHOLD  = 0.30
-
-# Model cache: bundled inside project (committed to git, no download on Vercel)
-CACHE_DIR = os.path.join(ROOT, "models")
-os.makedirs(CACHE_DIR, exist_ok=True)
 
 logger = logging.getLogger("rag_engine")
 
@@ -213,7 +203,6 @@ _embedding_cache = TTLCache(maxsize=1000, ttl=3600)  # Cache 1k embeddings for 1
 class QdrantRAGEngine:
     def __init__(self):
         self._qdrant: QdrantClient | None = None
-        self._embedder = None # Lazy load only if needed
         self.gemini_key = GEMINI_KEY
         
         try:
