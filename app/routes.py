@@ -5,8 +5,6 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from app.rag_engine import rag_engine
-from app.pdf_loader import load_pdfs_from_links
-from app.scraper import scrape_urls
 from app.logger import log_chat, logger
 from app.config import settings
 from slowapi import Limiter
