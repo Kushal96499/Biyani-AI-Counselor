@@ -16,6 +16,6 @@
   "env": {
     "TRANSFORMERS_CACHE": "/tmp",
     "SENTENCE_TRANSFORMERS_HOME": "/tmp",
-    "PYTHON_VERSION": "3.10"
+    "PYTHON_VERSION": "3.12"
   }
 }

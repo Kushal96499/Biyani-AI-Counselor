@@ -8,12 +8,5 @@ cachetools
 pydantic
 pydantic-settings
 python-multipart
-
-# Qdrant + AI (Lightweight for Vercel)
 qdrant-client
-fastembed
-
-# Content Processing
-pypdf
-pdfplumber
-beautifulsoup4
+google-genai

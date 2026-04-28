@@ -42,21 +42,23 @@ async def health_check():
 async def debug_status():
     q_status = "NOT_INITIALIZED"
     collections = []
+    test_results = "None"
     try:
         if rag_engine._qdrant:
-            # Try a simple call to verify connection
             cols = rag_engine._qdrant.get_collections()
             collections = [c.name for c in cols.collections]
             q_status = "CONNECTED"
+            
+            # Test actual retrieval
+            test_chunks = rag_engine._retrieve("admission")
+            test_results = f"Found {len(test_chunks)} chunks" if test_chunks else "0 chunks found"
     except Exception as e:
         q_status = f"ERROR: {str(e)}"
 
     return {
-        "groq_key": "Present" if settings.GROQ_API_KEY else "MISSING",
-        "gemini_key": "Present" if settings.GEMINI_API_KEY else "MISSING",
-        "qdrant_url": "Present" if settings.QDRANT_URL else "MISSING",
         "qdrant_connection": q_status,
         "available_collections": collections,
+        "test_search_result": test_results,
         "rag_engine_ready": "Yes" if rag_engine._qdrant else "No",
         "env": os.getenv("APP_ENV", "production")
     }
