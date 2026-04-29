@@ -17,8 +17,13 @@ limiter = Limiter(key_func=get_remote_address)
 # Per-session conversation history (keyed by IP)
 # chat_cache intentionally removed — cached answers ignore session context
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
     message: str
+    history: Optional[List[ChatMessage]] = None
 
 class ChatResponse(BaseModel):
     answer: str
@@ -80,12 +85,22 @@ async def chat(request: Request, body: ChatRequest):
         if not user_msg:
             raise HTTPException(status_code=400, detail="Empty message")
 
-        # Session tracking
-        session_id = getattr(request.client, "host", "unknown")
-        if session_id not in chat_history:
-            chat_history[session_id] = []
-
-        history_window = chat_history[session_id][-6:]
+        # Use history from frontend if available (to survive serverless reloads)
+        if body.history is not None:
+            history_window = [{"role": m.role, "content": m.content} for m in body.history[-6:]]
+            
+            # Still update in-memory for logging/debugging if needed
+            session_id = getattr(request.client, "host", "unknown")
+            if session_id not in chat_history:
+                chat_history[session_id] = []
+            chat_history[session_id].append({"role": "user", "content": user_msg})
+        else:
+            # Fallback to in-memory session tracking
+            session_id = getattr(request.client, "host", "unknown")
+            if session_id not in chat_history:
+                chat_history[session_id] = []
+            history_window = chat_history[session_id][-6:]
+            chat_history[session_id].append({"role": "user", "content": user_msg})
 
         # Query the RAG engine
         result = rag_engine.query(user_msg, history=history_window)
@@ -94,9 +109,9 @@ async def chat(request: Request, body: ChatRequest):
             raise Exception("RAG Engine returned empty response")
 
         # History and Logging
-        chat_history[session_id].append({"role": "user",      "content": user_msg})
-        chat_history[session_id].append({"role": "assistant", "content": result["answer"]})
-        chat_history[session_id] = chat_history[session_id][-10:]
+        if body.history is None:
+            chat_history[session_id].append({"role": "assistant", "content": result["answer"]})
+            chat_history[session_id] = chat_history[session_id][-10:]
 
         response_time = time.time() - start_time
         log_chat(user_msg, result["answer"], response_time)
