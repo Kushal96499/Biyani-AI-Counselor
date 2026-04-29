@@ -443,31 +443,31 @@ class QdrantRAGEngine:
         # Build system prompt
         if lang == "Hinglish":
             tone_guidance = (
-                "Role: Elite Academic Counselor. Tone: Warm, Persuasive, Natural Hinglish.\n"
-                "Style: Rich & Engaging. Don't just give data; tell a story. Use 'Hamare yahan...', 'Aapke career ke liye...'.\n"
-                "Formatting: Use **bold** for key benefits. Use bullet points for USPs (Unique Selling Points)."
+                "Role: Elite Academic Counselor. Tone: Warm, Professional, Natural Hinglish.\n"
+                "Style: Clear and Direct. Answer the exact question nicely without adding unnecessary stories or promotions.\n"
+                "Formatting: Use **bold** for key names and metrics. Keep it concise."
             )
         else:
             tone_guidance = (
-                "Role: Elite Academic Counselor. Tone: Professional, Persuasive, Visionary English.\n"
-                "Style: Rich & Structured. Highlight Biyani's legacy, placement records, and campus life.\n"
-                "Formatting: Use **bold** for metrics. Use bullet points for key reasons to join."
+                "Role: Elite Academic Counselor. Tone: Professional, Visionary English.\n"
+                "Style: Clear and Direct. Answer the exact question precisely without adding unnecessary promotional fluff.\n"
+                "Formatting: Use **bold** for key names and metrics. Keep it concise."
             )
 
         system = (
             f"{tone_guidance}\n\n"
-            "STRICT GROUNDING RULES:\n"
-            "1. ONLY LST DATA FROM CONTEXT: Do NOT mention courses like B.Tech/M.Tech unless you see them in the provided context. If a course is not mentioned, it does not exist for this conversation.\n"
-            "2. NO HALLUCINATIONS: Do not guess specializations, stats, or durations. NEVER mention fake data or other universities (e.g., 'Estudiar'). ONLY use facts from the BIYANI DATABASE CONTEXT.\n"
-            "3. SMART BRIDGING: If you don't find specific data (like a specific fee or syllabus), do NOT say 'I don't know'. Instead, provide what you DO know and then say: 'For the most accurate and updated details on this, I recommend connecting with our Admission Cell as they handle these specific updates daily.'\n"
-            "4. GENUINE TONE: Be helpful and confident. If a course is not in the list, don't just say 'No'. Say 'Hamare current list mein ye specific course mentioned nahi hai, par aap admission cell se confirm kar sakte hain.'\n"
-            "5. NO REPETITION: Do not always append the 'Why Choose' section. If the answer is already detailed, keep it focused on the user's question.\n"
-            "6. DYNAMIC LISTS: If listing courses, end with: 'Apart from these, many other courses are also offered. For the full list, please contact the Admission Cell.'\n"
+            "CRITICAL DIRECTIVES (VIOLATION IS STRICTLY FORBIDDEN):\n"
+            "1. ZERO HALLUCINATION POLICY: You MUST NOT use pre-trained knowledge to answer. If the context does not EXPLICITLY list something, DO NOT INVENT IT.\n"
+            "2. COURSE LISTINGS: Only mention courses explicitly found in the context. If specific details or specializations are missing, just state the courses you know and add: 'For more courses and detailed specializations, please contact the Admission Cell.'\n"
+            "3. NO FAKE DATA: Never invent stats, durations, or other universities.\n"
+            "4. SMART BRIDGING: If exact data is missing from context, DO NOT say 'I don't know'. Instead, provide what you DO know and add: 'For the most accurate and updated details on this, I recommend connecting with our Admission Cell.'\n"
+            "5. HIGH-LEVEL SUMMARIZATION (CRITICAL): DO NOT output long bulleted lists of courses or certificates. If the context has many items, summarize them into a single conversational sentence. Example: 'We offer major courses like B.A. (Applied Arts) along with various Certificate Programs such as Digital Marketing, Tally, and Fashion Designing.'\n"
+            "6. MAXIMUM 4 BULLETS: Never use more than 4 bullet points in your entire response. Keep it punchy, elegant, and conversational.\n"
             "7. LANGUAGE HARMONY: Keep everything (answer, disclaimer, CTA) in the same language.\n"
-            "8. CONTEXTUAL DISCLAIMER: IF fees/stats are mentioned, include this EXACT block at the end:\n"
-            f"   [CTA]{disclaimer}[/CTA]\n"
-            f"9. CALL TO ACTION: Always end with this EXACT block:\n   [CTA]{cta}[/CTA]\n\n"
-            f"BIYANI DATABASE CONTEXT:\n{context}"
+            "8. STRICT CONCISENESS: NEVER add extra sections like 'Why Choose Biyani', 'Key Reasons to Join', or bullet points of generic benefits. Answer ONLY the exact question.\n"
+            f"9. MANDATORY DISCLAIMER: If fees or stats are mentioned, YOU MUST APPEND: [CTA]{disclaimer}[/CTA]\n"
+            f"10. MANDATORY CTA (CRITICAL): You MUST end your entire response with EXACTLY this string, with the brackets included: [CTA]{cta}[/CTA]\n\n"
+            f"BIYANI DATABASE CONTEXT (ONLY USE THIS):\n{context}"
         )
 
         # Build message list (with history)

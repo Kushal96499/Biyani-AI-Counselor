@@ -305,7 +305,6 @@
         const { useState, useEffect, useRef } = React;
 
         const ChatApp = () => {
-            const [showWelcome, setShowWelcome] = useState(true);
             const [messages, setMessages] = useState([
                 {
                     role: 'assistant',
@@ -318,11 +317,7 @@
             const [userScrolledUp, setUserScrolledUp] = useState(false);
             const scrollRef = useRef(null);
             const containerRef = useRef(null);
-
-            useEffect(() => {
-                const timer = setTimeout(() => setShowWelcome(false), 3500);
-                return () => clearTimeout(timer);
-            }, []);
+            const typingIntervalRef = useRef(null);
 
             const handleScroll = () => {
                 if (!containerRef.current) return;
@@ -333,10 +328,19 @@
             };
 
             useEffect(() => {
-                if (!userScrolledUp && scrollRef.current) {
-                    scrollRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+                if (!userScrolledUp && containerRef.current) {
+                    if (isTyping) {
+                        // Instant snap during fast typing to prevent smooth-scroll lag
+                        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+                    } else {
+                        // Smooth scroll for new messages
+                        containerRef.current.scrollTo({
+                            top: containerRef.current.scrollHeight,
+                            behavior: 'smooth'
+                        });
+                    }
                 }
-            }, [messages, status]);
+            }, [messages, status, isTyping]);
 
             const format = (text) => {
                 if (!text) return { html: '', pdfUrl: null };
@@ -361,7 +365,7 @@
                 
                 setMessages(prev => [...prev, { role: 'assistant', content: '', isTyping: true }]);
                 
-                const interval = setInterval(() => {
+                typingIntervalRef.current = setInterval(() => {
                     if (i < fullText.length) {
                         currentText += fullText[i];
                         setMessages(prev => {
@@ -371,7 +375,7 @@
                         });
                         i++;
                     } else {
-                        clearInterval(interval);
+                        clearInterval(typingIntervalRef.current);
                         setIsTyping(false);
                         setMessages(prev => {
                             const newMessages = [...prev];
@@ -385,9 +389,10 @@
 
             const send = async (val) => {
                 const text = val || input.trim();
-                if (!text || isTyping) return;
+                if (!text || isTyping || status) return;
 
                 setInput('');
+                setUserScrolledUp(false); // Reset scroll lock on new message
                 setMessages(p => [...p, { role: 'user', content: text }]);
                 setStatus('Consulting AI Counselor...');
 
@@ -411,50 +416,6 @@
 
             return (
                 <div className="app-shell relative">
-                    {/* Welcome Center Modal with Blur */}
-                    {showWelcome && (
-                        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 backdrop-blur-2xl bg-gradient-to-br from-[#001e61]/30 to-[#8b0000]/20 animate-fadeIn">
-                            {/* Enhanced glowing blobs */}
-                            <div className="absolute top-1/2 left-1/2 -translate-x-[70%] -translate-y-[70%] w-[350px] h-[350px] bg-[#8b0000]/30 rounded-full blur-[100px] animate-pulse [animation-duration:4s]"></div>
-                            <div className="absolute top-1/2 left-1/2 translate-x-[20%] translate-y-[20%] w-[300px] h-[300px] bg-[#001e61]/30 rounded-full blur-[100px] animate-pulse [animation-duration:5s] delay-1000"></div>
-
-                            {/* Ultra Premium Glass Card */}
-                            <div className="relative bg-white/70 backdrop-blur-3xl p-10 sm:p-14 rounded-[2.5rem] shadow-[0_20px_60px_rgba(0,0,0,0.15),0_0_80px_rgba(139,0,0,0.1)] text-center border border-white transform transition-all duration-700 overflow-hidden group w-full max-w-sm">
-                                {/* Inner shine effect */}
-                                <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-1000"></div>
-                                
-                                <div className="relative">
-                                    {/* Floating Emoji */}
-                                    <div className="mx-auto inline-flex items-center justify-center w-28 h-28 rounded-full bg-gradient-to-tr from-gray-50 to-white mb-6 shadow-[0_15px_30px_rgba(0,30,97,0.1)] border border-white">
-                                        <div className="text-6xl animate-bounce [animation-duration:2.5s]">🙏</div>
-                                    </div>
-                                    
-                                    {/* Gradient Header */}
-                                    <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#001e61] to-[#8b0000] mb-3 tracking-tight">
-                                        Namaste!
-                                    </h1>
-                                    
-                                    {/* Subtle divider */}
-                                    <div className="h-[3px] w-16 bg-gradient-to-r from-[#001e61] via-[#8b0000] to-[#001e61] mx-auto mb-5 rounded-full opacity-50"></div>
-                                    
-                                    <p className="text-[#8b0000] text-sm sm:text-[15px] font-black uppercase tracking-[0.2em] mb-2 drop-shadow-sm">
-                                        Biyani Group of Colleges
-                                    </p>
-                                    <p className="text-gray-500 text-[11px] sm:text-[12px] font-semibold tracking-wider uppercase opacity-80">
-                                        Opening AI Counselor...
-                                    </p>
-                                    
-                                    {/* Bouncing Dot loaders for high visibility */}
-                                    <div className="mt-10 flex justify-center gap-2.5 items-center h-6">
-                                        <div className="w-3 h-3 bg-[#001e61] rounded-full animate-bounce shadow-sm"></div>
-                                        <div className="w-3 h-3 bg-[#8b0000] rounded-full animate-bounce shadow-sm [animation-delay:0.15s]"></div>
-                                        <div className="w-3 h-3 bg-[#001e61] rounded-full animate-bounce shadow-sm [animation-delay:0.3s]"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    
                     <aside className="sidebar">
                         <img src="./assets/AI_image.png" className="hero-img" alt="Biyani" />
                         <div className="sidebar-overlay"></div>
@@ -537,6 +498,20 @@
                             </div>
                         </div>
 
+                        {/* Scroll to Bottom Button */}
+                        {userScrolledUp && (
+                            <button 
+                                onClick={() => {
+                                    setUserScrolledUp(false);
+                                    scrollRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+                                }}
+                                className="absolute bottom-[210px] sm:bottom-[190px] left-1/2 -translate-x-1/2 w-11 h-11 bg-white text-gray-600 rounded-full shadow-[0_8px_25px_rgba(0,30,97,0.2)] border border-gray-100 hover:text-[#8b0000] hover:bg-white animate-fadeIn z-[500] transition-all hover:scale-110 active:scale-95 flex items-center justify-center group"
+                                title="Scroll to bottom"
+                            >
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transform group-hover:translate-y-1 transition-transform"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+                            </button>
+                        )}
+
                         <div className="floating-controls">
                             <div className="floating-inner px-2">
                                 <div className="pills-row pb-2">
@@ -548,13 +523,18 @@
                                 <div className="search-bar group border-gray-200 focus-within:border-[#8b0000] focus-within:ring-4 focus-within:ring-[#8b000011] transition-all">
                                     <input
                                         type="text"
-                                        className="flex-1 bg-transparent outline-none text-[16px] text-gray-800 placeholder-gray-400 py-3"
-                                        placeholder="Type your academic query..."
+                                        className="flex-1 bg-transparent outline-none text-[16px] text-gray-800 placeholder-gray-400 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        placeholder={isTyping || status ? "AI is typing..." : "Type your academic query..."}
                                         value={input}
                                         onChange={e => setInput(e.target.value)}
                                         onKeyPress={e => e.key === 'Enter' && send()}
+                                        disabled={isTyping || !!status}
                                     />
-                                    <button onClick={() => send()} className="send-btn shadow-lg shadow-[#8b000044] hover:scale-105 active:scale-95 transition-transform">
+                                    <button 
+                                        onClick={() => !isTyping && !status && send()} 
+                                        className={`send-btn transition-transform ${isTyping || status ? 'bg-gray-400 cursor-not-allowed opacity-50 shadow-none' : 'shadow-lg shadow-[#8b000044] hover:scale-105 active:scale-95'}`}
+                                        disabled={isTyping || !!status}
+                                    >
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M12 19V5m-7 7l7-7 7 7" /></svg>
                                     </button>
                                 </div>
