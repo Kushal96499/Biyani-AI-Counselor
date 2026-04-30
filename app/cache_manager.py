@@ -103,13 +103,8 @@ class RedisCacheManager:
         normalized = self._normalize_query(query)
         exact_key = self._get_exact_key(normalized)
         
-        # Determine TTL based on query content
-        ttl = 3600 # 1 hour default
-        lower_q = normalized.lower()
-        if any(word in lower_q for word in ["fee", "admission", "seat", "intake"]):
-            ttl = 1800 # 30 mins for critical data
-        elif any(word in lower_q for word in ["about", "vision", "mission", "where"]):
-            ttl = 86400 # 1 day for static info
+        # Use a long TTL (24 hours) by default since we auto-clear cache on new data upload
+        ttl = 86400 
 
         cache_obj = {
             "query": query,

@@ -1,6 +1,7 @@
 import logging
 import os
 from datetime import datetime
+import re
 
 # Ensure logs directory exists
 if os.environ.get("VERCEL"):
