@@ -18,8 +18,8 @@ from cachetools import TTLCache
 from dotenv import load_dotenv
 from google import genai
 from qdrant_client import QdrantClient
-
-
+from qdrant_client.models import PointStruct
+import uuid
 
 # ── Load Environment ──────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,16 +27,17 @@ load_dotenv(ROOT / ".env")
 
 QDRANT_URL     = os.getenv("QDRANT_URL", "")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
-COLLECTION     = os.getenv("QDRANT_COLLECTION", "biyani_ai_clean_v2")
+QDRANT_COLLECTION = "biyani_ai_nvidia_v2"
+COLLECTION        = QDRANT_COLLECTION
 
 GROQ_KEY   = os.getenv("GROQ_API_KEY", "")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 NVIDIA_KEY = os.getenv("NVIDIA_API_KEY", "")
 OR_KEY     = os.getenv("OPENROUTER_API_KEY", "")
 
-# Search Config
-RETRIEVAL_LIMIT  = 8
-SCORE_THRESHOLD  = 0.30
+# Search Config (Slightly increased for better context coverage)
+RETRIEVAL_LIMIT  = 15
+SCORE_THRESHOLD  = 0.20
 
 logger = logging.getLogger("rag_engine")
 
@@ -59,9 +60,8 @@ def clean_text(text: str) -> str:
     if text.startswith("icer"): text = "Officer" + text[4:]
     if text.startswith("fficer"): text = "Officer" + text[6:]
 
-    import re
-    # Remove multiple spaces but preserve newlines
-    text = re.sub(r'[ \t]+', ' ', text)
+    # Remove multiple spaces but preserve gaps that look like table column separators (2 or more spaces)
+    text = re.sub(r'[ \t]{2,}', '  ', text) 
     return text.strip()
 
 PDF_TRIGGERS = {
@@ -101,59 +101,42 @@ def _is_greeting(text: str) -> bool:
 def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
     payload_base = {
         "messages":         messages,
-        "temperature":      0.25,
-        "max_tokens":       900,
-        "presence_penalty": 0.2,
-        "frequency_penalty": 0.2,
+        "temperature":      0.0, # Zero temperature = Strict Factual Accuracy
+        "max_tokens":       4000 if is_complex else 2000,
+        "presence_penalty": 0.0, # Removed penalties so it doesn't try to "rephrase" context too much
+        "frequency_penalty": 0.0,
+        "top_p":            0.1,
     }
 
     # ── 1. GROQ (Fastest) ──
     if GROQ_KEY:
-        try:
-            model = "llama-3.3-70b-versatile" if is_complex else "llama-3.1-8b-instant"
-            r = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                json={**payload_base, "model": model},
-                headers={"Authorization": f"Bearer {GROQ_KEY}"},
-                timeout=9
-            )
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
-            logger.warning(f"Groq status: {r.status_code}")
-        except Exception as e:
-            logger.warning(f"Groq failed: {e}")
+        for model in["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+            try:
+                payload_msg =[]
+                for m in messages:
+                    content = m["content"]
+                    if len(content) > 7000:
+                        content = content[:7000] + "... [Truncated]"
+                    payload_msg.append({"role": m["role"], "content": content})
 
-    # ── 2. GEMINI (Smart Reasoning) ──
-    if GEMINI_KEY:
-        for model in ["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
-            for ver in ["v1beta", "v1"]:
-                try:
-                    sys_text = next((m["content"] for m in messages if m["role"] == "system"), "")
-                    contents = [
-                        {"role": "model" if m["role"] == "assistant" else "user",
-                         "parts": [{"text": m["content"]}]}
-                        for m in messages if m["role"] != "system"
-                    ]
-                    r = requests.post(
-                        f"https://generativelanguage.googleapis.com/{ver}/models/{model}:generateContent?key={GEMINI_KEY}",
-                        json={"contents": contents,
-                              "system_instruction": {"parts": [{"text": sys_text}]},
-                              "generationConfig": {"temperature": 0.25, "maxOutputTokens": 1200}},
-                        timeout=15
-                    )
-                    if r.status_code == 200:
-                        return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    logger.warning(f"Gemini {model}/{ver} status: {r.status_code}")
-                except Exception as e:
-                    logger.warning(f"Gemini {model}/{ver} failed: {e}")
-                    continue
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    json={**payload_base, "messages": payload_msg, "model": model},
+                    headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                    timeout=20
+                )
+                if r.status_code == 200:
+                    return r.json()["choices"][0]["message"]["content"].strip()
+                logger.warning(f"Groq {model} status: {r.status_code}")
+            except Exception as e:
+                logger.warning(f"Groq {model} failed: {e}")
 
-    # ── 3. NVIDIA (Power Model) ──
+    # ── 2. NVIDIA (Power Model - Tier 2) ──
     if NVIDIA_KEY:
-        nvidia_models = [
-            "mistralai/mistral-large-3-675b-instruct-2512",
-            "mistralai/mixtral-8x7b-instruct-v0.1",
-            "abacusai/dracarys-llama-3.1-70b-instruct",
+        nvidia_models =[
+            "meta/llama-3.1-70b-instruct",
+            "meta/llama-3.1-8b-instruct",
+            "nvidia/nemotron-3-super-120b-a12b"
         ]
         for model in nvidia_models:
             try:
@@ -161,21 +144,20 @@ def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
                     "https://integrate.api.nvidia.com/v1/chat/completions",
                     json={**payload_base, "model": model},
                     headers={"Authorization": f"Bearer {NVIDIA_KEY}"},
-                    timeout=12
+                    timeout=25
                 )
                 if r.status_code == 200:
                     return r.json()["choices"][0]["message"]["content"].strip()
                 logger.warning(f"NVIDIA {model} status: {r.status_code}")
             except Exception as e:
                 logger.warning(f"NVIDIA {model} failed: {e}")
-                continue
 
-    # ── 4. OPENROUTER (Free Fallback) ──
+    # ── 3. OPENROUTER (Free Fallback - Tier 3) ──
     if OR_KEY:
-        or_models = [
+        or_models =[
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
             "nvidia/nemotron-3-super-120b-a12b:free",
-            "nvidia/nemotron-3-nano-30b-a3b:free",
-            "google/gemma-2-9b-it:free"
+            "meta-llama/llama-3.1-8b-instruct:free"
         ]
         for model in or_models:
             try:
@@ -192,6 +174,38 @@ def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
                 logger.warning(f"OpenRouter {model} failed: {e}")
                 continue
 
+    # ── 4. GEMINI (Smart Reasoning - Tier 4) ──
+    if GEMINI_KEY:
+        for model in["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
+            try:
+                contents =[]
+                last_role = None
+                chat_msgs = [m for m in messages if m["role"] != "system"]
+                sys_text = next((m["content"] for m in messages if m["role"] == "system"), "")
+
+                for m in chat_msgs:
+                    role = "user" if m["role"] == "user" else "model"
+                    if role == last_role:
+                        contents[-1]["parts"][0]["text"] += "\n" + m["content"]
+                    else:
+                        contents.append({"role": role, "parts": [{"text": m["content"]}]})
+                        last_role = role
+
+                r = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
+                    json={
+                        "contents": contents,
+                        "system_instruction": {"parts": [{"text": sys_text}]},
+                        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 4000 if is_complex else 2000}
+                    },
+                    timeout=20
+                )
+                if r.status_code == 200:
+                    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                logger.warning(f"Gemini {model} status: {r.status_code}")
+            except Exception as e:
+                logger.warning(f"Gemini {model} failed: {e}")
+
     logger.error("All LLM providers failed.")
     return None
 
@@ -206,19 +220,22 @@ class QdrantRAGEngine:
         self.gemini_key = GEMINI_KEY
         
         try:
-            self._qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=25)
+            self._qdrant = QdrantClient(
+                url=QDRANT_URL,
+                api_key=QDRANT_API_KEY,
+                timeout=25,
+                check_compatibility=False
+            )
             logger.info(f"Qdrant connected. Collection: {COLLECTION}")
         except Exception as e:
             logger.error(f"Qdrant init failed: {e}")
 
     def _normalize_query(self, text: str) -> str:
-        """Clean query to increase cache hits"""
         text = text.lower().strip()
         text = re.sub(r'\s+', ' ', text)
         return text
 
     def _get_nvidia_vector(self, text: str) -> list[float] | None:
-        """Tier 1: OpenRouter NVIDIA 2048 Dimensions (High Precision)"""
         token = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not token:
             return None
@@ -241,159 +258,224 @@ class QdrantRAGEngine:
             logger.warning(f"NVIDIA API exception: {e}")
         return None
 
-    def _get_gemini_vector(self, text: str) -> list[float] | None:
-        """Tier 2: Google Gemini Fallback (384 Dim)"""
-        if not self.gemini_key:
-            return None
-        try:
-            from google import genai
-            client = genai.Client(api_key=self.gemini_key)
-            result = client.models.embed_content(
-                model="gemini-embedding-2",
-                contents=text,
-                config={"output_dimensionality": 384}
-            )
-            return result.embeddings[0].values
-        except Exception as e:
-            logger.warning(f"Gemini Fallback failed: {e}")
-        return None
-    def _get_hf_vector(self, text: str) -> list[float] | None:
-        """Tier 2: HuggingFace API Fallback"""
-        try:
-            # Correct HF Inference API endpoint for embeddings
-            url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{EMBED_MODEL}"
-            payload = {"inputs": [BGE_QUERY_PREFIX + text], "options": {"wait_for_model": True}}
-            headers = {"Content-Type": "application/json"}
-            
-            # Use HF token if available
-            token = os.getenv("HUGGINGFACE_API_KEY", "").strip()
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-            
-            r = requests.post(url, json=payload, headers=headers, timeout=15)
-            if r.status_code == 200:
-                res = r.json()
-                return res[0] if isinstance(res[0], list) else res
-            
-            logger.warning(f"HF API failed ({r.status_code}): {r.text}")
-        except Exception as e:
-            logger.warning(f"HF API fallback Exception: {e}")
-        return None
-
     def _get_vector(self, text: str) -> list[float] | None:
-        """
-        Smart Embedding Dispatcher with Caching & Fallbacks.
-        Optimized for Vercel Serverless.
-        """
         query = self._normalize_query(text)
-        
-        # 1. Check Cache
         if query in _embedding_cache:
             return _embedding_cache[query]
 
-        # 2. Try NVIDIA (Elite - 2048 Dim)
         vec = self._get_nvidia_vector(query)
-        
-        # 3. Try Gemini (Fallback - 384 Dim)
-        if not vec:
-            vec = self._get_gemini_vector(query)
-        
-        # 4. Try HF (Fallback - 384 Dim)
-        if not vec:
-            vec = self._get_hf_vector(query)
-            
-
-        # Save to Cache if successful
         if vec:
             _embedding_cache[query] = vec
-            
         return vec
 
     def _retrieve(self, query: str) -> list[dict]:
         if not self._qdrant:
             logger.error("Qdrant not initialized.")
-            return []
+            return[]
 
         vec = self._get_vector(query)
         if not vec:
             logger.error("Embedding failed — skipping retrieval.")
-            return []
+            return[]
 
         try:
-            # NVIDIA Elite Collection (2048 Dimensions)
             TARGET_COLLECTION = "biyani_ai_nvidia_v2"
             
-            # 1. Search for Top 15 candidates (Better context for Reranker)
             response = self._qdrant.query_points(
                 collection_name=TARGET_COLLECTION,
                 query=vec,
-                limit=15,
-                score_threshold=0.05,
+                limit=RETRIEVAL_LIMIT,
+                score_threshold=SCORE_THRESHOLD,
                 with_payload=True
             )
             hits = response.points
             
-            # 2. Rerank if hits found, else return empty
             if hits:
                 return self._rerank(query, hits)
-            return []
+            return[]
         except Exception as e:
             logger.error(f"Retrieval failed: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Retrieval failed: {e}")
-            return []
+            return[]
 
     def _rerank(self, query: str, hits: list) -> list[dict]:
-        """Tier 1: NVIDIA Mistral-4b Reranker for Absolute Precision"""
         token = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not token or not hits:
-            return [h.payload for h in hits[:5]]
+            return[h.payload for h in hits[:8]]
 
         try:
             url = "https://openrouter.ai/api/v1/chat/completions"
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
             
-            # Prepare context for Mistral to rank
             context_text = "\n".join([f"[{i}] {h.payload.get('text', '')[:500]}" for i, h in enumerate(hits)])
-            prompt = f"User Question: {query}\n\nSearch Results:\n{context_text}\n\nTask: Rank the results by relevance. Output ONLY the index [0-9] of the absolute best match. If no result is relevant, output 'NONE'."
+            prompt = f"User Question: {query}\n\nSearch Results:\n{context_text}\n\nTask: Rank the results by relevance. Output ONLY the index[0-9] of the absolute best match. If no result is relevant, output 'NONE'."
             
             payload = {
                 "model": "nvidia/rerank-qa-mistral-4b",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 5,
+                "messages": [{"role": "user", "content": f"Question: {query}\n\nDocuments:\n{context_text}\n\nTask: Identify the indices of ALL documents that are relevant to the question. Output ONLY a comma-separated list of indices (e.g., '0, 2, 5'). If none are relevant, output 'NONE'."}],
+                "max_tokens": 20,
                 "temperature": 0
             }
             
             r = requests.post(url, json=payload, headers=headers, timeout=10)
             if r.status_code == 200:
-                best_id = r.json()["choices"][0]["message"]["content"].strip().upper()
-                if "NONE" not in best_id:
-                    # Find the corresponding hit
+                indices_text = r.json()["choices"][0]["message"]["content"].strip().upper()
+                if "NONE" not in indices_text:
+                    relevant_indices = [int(s.strip()) for s in re.findall(r'\d+', indices_text)]
+                    ranked_hits = []
+                    seen_hits = set()
+                    
+                    # Add relevant hits first
+                    for idx in relevant_indices:
+                        if idx < len(hits):
+                            ranked_hits.append(hits[idx].payload)
+                            seen_hits.add(idx)
+                    
+                    # Add the rest
                     for i, h in enumerate(hits):
-                        if str(i) in best_id:
-                            return [h.payload] + [other.payload for j, other in enumerate(hits) if i != j][:4]
+                        if i not in seen_hits:
+                            ranked_hits.append(h.payload)
+                    
+                    return ranked_hits[:12]
         except Exception as e:
             logger.warning(f"Reranking skipped: {e}")
             
-        return [h.payload for h in hits[:5]]
+        return[h.payload for h in hits[:12]]
 
 
+    # ── Admin Panel Integrations ──────────────────────────────────────────────
+    def get_collection_stats(self) -> dict:
+        if not self._qdrant: return {"error": "Qdrant not connected"}
+        try:
+            info = self._qdrant.get_collection(COLLECTION)
+            return {
+                "collection_name": COLLECTION,
+                "points_count": info.points_count,
+                "status": str(info.status)
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
-    # ── Compatibility stubs (for admin routes) ────────────────────────────────
-    def clear_database(self): pass
-    def get_indexed_sources(self): return set()
+    def clear_database(self):
+        if not self._qdrant: return
+        try:
+            from qdrant_client.models import VectorParams, Distance
+            self._qdrant.delete_collection(COLLECTION)
+            self._qdrant.create_collection(
+                collection_name=COLLECTION,
+                vectors_config=VectorParams(size=2048, distance=Distance.COSINE)
+            )
+            logger.info("Database cleared and recreated.")
+        except Exception as e:
+            logger.error(f"Clear DB failed: {e}")
+
+    def get_indexed_sources(self):
+        return set()
+
+    def add_texts(self, texts: list[str], metadata: list[dict] = None):
+        if not self._qdrant: return False
+        
+        def chunk_text(t, max_words=400): # Increased for better semantic context
+            words = t.split()
+            return [" ".join(words[i:i+max_words]) for i in range(0, len(words), max_words)]
+        
+        points =[]
+        for i, text in enumerate(texts):
+            chunks = chunk_text(text)
+            meta = metadata[i] if metadata and i < len(metadata) else {"source": "manual_upload"}
+            for chunk in chunks:
+                vec = self._get_nvidia_vector(chunk)
+                if vec:
+                    point_id = uuid.uuid4().hex
+                    points.append(
+                        PointStruct(
+                            id=point_id,
+                            vector=vec,
+                            payload={"text": chunk, **meta}
+                        )
+                    )
+        
+        if points:
+            try:
+                self._qdrant.upsert(
+                    collection_name=COLLECTION,
+                    points=points
+                )
+                logger.info(f"Upserted {len(points)} chunks successfully.")
+                return True
+            except Exception as e:
+                logger.error(f"Upsert failed: {e}")
+                return False
+        return False
+
+    def search_chunks(self, text: str, limit: int = 10):
+        if not self._qdrant: return []
+        vec = self._get_nvidia_vector(text)
+        if not vec: return[]
+        
+        try:
+            TARGET_COLLECTION = "biyani_ai_nvidia_v2"
+            res = self._qdrant.query_points(
+                collection_name=TARGET_COLLECTION,
+                query=vec,
+                limit=limit,
+                with_payload=True
+            )
+            return[{"id": r.id, "score": r.score, "payload": r.payload} for r in res.points]
+        except Exception as e:
+            logger.error(f"Chunk search failed: {e}")
+            return[]
+            
+    def delete_chunk(self, point_id: str):
+        if not self._qdrant: return False
+        try:
+            TARGET_COLLECTION = "biyani_ai_nvidia_v2"
+            try:
+                pid = int(point_id)
+            except ValueError:
+                pid = point_id
+
+            from qdrant_client.models import PointIdsList
+            self._qdrant.delete(
+                collection_name=TARGET_COLLECTION, 
+                points_selector=PointIdsList(points=[pid])
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Chunk delete failed: {e}")
+            return False
+
     def add_documents(self, docs): pass
     def add_faqs(self, path): pass
 
     # ── Main Query Handler ────────────────────────────────────────────────────
     def query(self, user_message: str, history: list[dict] | None = None) -> dict:
         if history is None:
-            history = []
+            history =[]
 
         lang = _detect_language(user_message)
         pdf  = _get_pdf_url(user_message)
 
+        # Enhanced Query Expansion (Additive approach)
+        search_query = user_message
+        low_msg = user_message.lower()
+        if any(w in low_msg for w in ["fees", "fee", "paisa", "rupaye", "amount"]):
+            search_query += " | Detailed fees structure, all courses, additional charges Biyani Group of Colleges"
+        elif any(w in low_msg for w in ["scholarship", "scholarships", "yojana", "discount", "concession", "scheme"]):
+            search_query += " | Scholarships at Biyani Group of Colleges, Kalpana Chawla, Merit scholarship, Samaj Kalyan Yojana eligibility and amount"
+        elif any(w in low_msg for w in ["courses", "course", "subject", "subjects", "detail", "syllabus"]):
+            search_query += " | List of all UG, PG, and Diploma courses, subject details, descriptions, Biyani Group of Colleges"
+        elif any(w in low_msg for w in ["college", "address", "contact", "location", "email", "phone", "helpline"]):
+            search_query += " | Biyani Group of Colleges list, addresses, contact numbers, email, Biyani Girls College, Bright Moon, Beena Mahavidyalaya"
+        
+        # Developer Identity Injection (Specific Trigger)
+        dev_info = ""
+        if any(w in low_msg for w in ["build", "built", "develop", "developer", "creator", "made", "owner", "banaya", "kon hai", "who are you"]):
+            dev_info = (
+                "\nCORE IDENTITY: This AI Counselor was developed by Kushal Kumawat, a 3rd-year student at Biyani College, on April 30, 2026. "
+                "If asked about your creator, always credit him warmly. "
+                "Developer Links: GitHub: https://github.com/Kushal96499/, LinkedIn: https://www.linkedin.com/in/kushal-ku/, Website: kushalkumawat.in"
+            )
+        
         # Greeting short-circuit
         if _is_greeting(user_message):
             msg = (
@@ -401,80 +483,111 @@ class QdrantRAGEngine:
                 if lang == "Hinglish" else
                 "Hello! I am your Biyani AI Counselor. I can help you with admissions, courses, fees, and campus details. How can I assist you today?"
             )
-            return {"answer": msg, "sources": [], "pdf_url": None}
+            return {"answer": msg, "sources":[], "pdf_url": None}
 
         # Retrieve context
-        logger.info(f"[Query] '{user_message}' | Lang: {lang}")
+        logger.info(f"[Query] '{user_message}' (Search: '{search_query}') | Lang: {lang}")
         t0 = time.time()
-        chunks = self._retrieve(user_message)
+        
+        # Increase retrieval depth
+        RETRIEVAL_LIMIT_S = 25 
+        vec = self._get_vector(search_query)
+        if not vec:
+            chunks = []
+        else:
+            try:
+                response = self._qdrant.query_points(
+                    collection_name="biyani_ai_nvidia_v2",
+                    query=vec,
+                    limit=RETRIEVAL_LIMIT_S,
+                    score_threshold=0.15, # Slightly more permissive
+                    with_payload=True
+                )
+                chunks = self._rerank(search_query, response.points)
+            except:
+                chunks = []
+        
         logger.info(f"[Retrieval] {len(chunks)} chunks in {time.time()-t0:.2f}s")
 
-        # Fallback if no context AND no history
         if not chunks and not pdf and not history:
             msg = (
-                "Aapke is sawal ka exact detail abhi mere paas nahi hai, par hamare college mein kai behtareen courses aur facilities hain! Apni query ke baare mein poori jankari ke liye aap hamare counselors se seedha 0141-2338591 par baat kar sakte hain — woh aapki poori help karenge! 🙏"
+                "Aapke is sawal ka exact detail abhi mere paas nahi hai, par hamare college mein kai behtareen courses aur facilities hain! Apni query ke baare mein poori jankari ke liye aap hamare counselors se seedha **0141-2338591** ya **8696218218** par baat kar sakte hain. 🙏"
                 if lang == "Hinglish" else
-                "I don't have the exact details on this right now, but we offer a wide range of excellent courses and facilities! For the most accurate and updated information, please reach out to our admission helpdesk at **0141-2338591** or **9358890991**."
+                "I don't have the exact details on this right now, but we offer a wide range of excellent courses and facilities! For the most accurate and updated information, please reach out to our admission helpdesk at **0141-2338591** or **8696218218**."
             )
-            return {"answer": msg, "sources": [], "pdf_url": pdf}
+            return {"answer": msg, "sources":[], "pdf_url": pdf}
 
-        # Build context & sources
-        context = clean_text("\n---\n".join(c.get("text", "") for c in chunks[:4]))
-        sources  = list(dict.fromkeys(c.get("url", "") for c in chunks if c.get("url")))
+        # Build context & sources with deduplication (Increased to top 8 chunks to not miss data)
+        unique_chunks =[]
+        seen_texts = set()
+        for c in chunks:
+            text = c.get("text", "").strip()
+            if text and text[:100] not in seen_texts:
+                unique_chunks.append(c)
+                seen_texts.add(text[:100])
+        
+        # Taking up to 15 chunks for better coverage to avoid missing any data point
+        context = clean_text("\n---\n".join(c.get("text", "") for c in unique_chunks[:15]))
+        sources  = list(dict.fromkeys(c.get("url", "") for c in unique_chunks if c.get("url")))
 
-        # Determine complexity
-        complex_keywords = {"fees", "admission", "eligibility", "scholarship", "process", "placement", "hostel", "structure", "course", "syllabus"}
-        is_complex = bool(set(user_message.lower().split()) & complex_keywords) or len(user_message.split()) > 12
+        complex_keywords = {
+            "fees", "fee", "admission", "admissions", "eligibility", "scholarship", "scholarships", 
+            "process", "placement", "placements", "hostel", "structure", "structures", 
+            "course", "courses", "syllabus", "list", "lists", "all", "prospectus", "brochure",
+            "subject", "subjects", "detail", "details", "description", "departments"
+        }
+        is_complex = bool(set(user_message.lower().split()) & complex_keywords) or len(user_message.split()) > 10
 
-        # Language-specific disclaimers
-        disclaimer = (
-            "Note: Please note that fees and statistics are subject to change. For final confirmation, kindly visit the college admission cell."
-            if lang == "English" else
-            "Kripya dhyan dein ki fees aur stats mein badlav ho sakte hain. Final confirmation ke liye college admission cell se zarur milein."
-        )
-
-        # Language-specific CTA
         cta = (
-            "You can visit the campus today or call us at: 0141-2338591 / 9358890991."
-            if lang == "English" else
-            "Aap aaj hi campus visit kar sakte hain ya humein call karein: 0141-2338591 / 9358890991."
+            "**Biyani Group of Colleges Admission Cell**\n"
+            "Address: Sector-3, Vidhyadhar Nagar, Jaipur (Raj.) 302039\n"
+            "Helpline: 8696218218 / 8290636942\n"
+            "WhatsApp: Click to Chat | Email: admissions@biyanicolleges.org"
         )
 
-        # Build system prompt
         if lang == "Hinglish":
             tone_guidance = (
                 "Role: Elite Academic Counselor. Tone: Warm, Professional, Natural Hinglish, Highly Smart and Accommodating.\n"
-                "Style: Clear, detailed, and extremely helpful for students, parents, and staff. Provide satisfying answers about courses, fees, etc.\n"
-                "Formatting: Use **bold** for key names, fees, and metrics. Use well-structured bullet points where helpful."
+                "Style: Clear, detailed, and extremely helpful for students. Provide satisfying answers."
             )
         else:
             tone_guidance = (
                 "Role: Elite Academic Counselor. Tone: Professional, Visionary English, Highly Smart and Accommodating.\n"
-                "Style: Clear, detailed, and extremely helpful for students, parents, and staff. Provide satisfying answers about courses, fees, etc.\n"
-                "Formatting: Use **bold** for key names, fees, and metrics. Use well-structured bullet points where helpful."
+                "Style: Clear, detailed, and extremely helpful for students. Provide satisfying answers."
             )
 
+        # S-Tier Dynamic System Prompt
         system = (
-    f"{tone_guidance}\n\n"
-    "ROLE & PERSONA:\n"
-    "You are the highly intelligent, welcoming, and expert AI Admission Counselor for Biyani Group of Colleges. Your goal is to impress students, parents, and staff with your exceptional helpfulness, clarity, and deep knowledge of the institution. You provide rich, conversational, and highly satisfying answers.\n\n"
-    "CRITICAL DIRECTIVES:\n"
-    "1. SMART COURSE PRESENTATION (CRITICAL): When asked to 'list courses' generally, ONLY list the high-level main categories and program names (like B.A., B.Sc., B.Com, M.A., Certificate Programs). DO NOT list the individual major/minor subjects inside them by default to avoid clutter! After listing the main programs, you MUST ask the user: 'Which specific course would you like to know more about?' and add a polite note: 'Since there are many subjects, I haven't listed all of them here. Please ask for a specific course by name to get its full details.' When a user asks about a *specific* course, then provide the full details and subjects for that course.\n"
-    "2. SUPERIOR PROBLEM SOLVING (NO DEAD ENDS): Do not act like a basic bot that just says 'I don't have this data'. If an exact detail (like a specific minor subject or exact fee) is missing, smoothly pivot. Provide the closest available information, highlight the general benefits of that department, and politely invite them to speak with the admission desk. Always keep the conversation moving positively.\n"
-    "3. ACCURATE YET FLUID: Base your core facts (names, durations, fees) on the provided context to avoid fake data, but use your advanced intelligence to elaborate naturally. Feel free to add warm welcoming sentences and explain *why* a particular program at Biyani is an excellent choice.\n"
-    "4. DYNAMIC CONVERSATIONAL MEMORY: Pay close attention to the user's ongoing chat. If they ask to filter a previously given list (e.g., 'only show me science courses from above' or 'what are the fees for the second one?'), understand the context instantly and deliver perfectly.\n"
-    "5. LANGUAGE HARMONY: Always seamlessly match the language of the user (English, Hindi, or Hinglish) while maintaining a warm, professional, and respectful tone.\n"
-    f"6. MANDATORY DISCLAIMER: Whenever you mention specific fees, stats, or dates, you MUST append this disclaimer exactly: [CTA]{disclaimer}[/CTA]\n"
-    f"7. MANDATORY CLOSING (CRITICAL): EVERY SINGLE RESPONSE MUST end exactly with this exact string (including brackets): [CTA]{cta}[/CTA]\n\n"
-    "BIYANI KNOWLEDGE BASE:\n"
-    "(Use your intelligence to extract course, fee, and campus data from here to assist the user dynamically)\n"
-    f"{context}"
-)
+            f"{tone_guidance}\n\n"
+            "ROLE: Expert AI Admission Counselor for Biyani Group of Colleges.\n"
+            f"{dev_info}\n\n"
+            "BIYANI KNOWLEDGE BASE (CONTEXT):\n"
+            f"{context}\n\n"
+            "STRICT DIRECTIVES (MUST FOLLOW TO PREVENT DATA LOSS):\n"
+            "1. CONTEXT-ONLY MODE: Base your answer ENTIRELY on the BIYANI KNOWLEDGE BASE provided above. Do NOT invent, assume, or alter any facts, figures, or fees. If the detail is not in the context, politely state you don't have that specific information.\n"
+            "2. COMPREHENSIVE COURSE & FEE DETAILS: When providing tables or lists, you MUST include the FULL description of each item as found in the context. Do NOT summarize or omit any row found in the retrieved data.\n"
+            "3. PRESERVE EXACT NUMBERS: Ensure all fees, scholarship percentages, dates, and numeric values match the context EXACTLY. Do not change headers or values.\n"
+            "4. DYNAMIC FORMATTING & TABLES: Use Markdown for structure. Use proper headers (##, ###) for sections. MANDATORY: Any data presented as a list with multiple columns MUST be converted into a clean Markdown Table using pipe (|) separators.\n"
+            "5. NO DUPLICATION: Deduplicate entries if they appear multiple times in the context, but keep the most detailed version.\n"
+            "6. NO CONTACT INFO IN MAIN TEXT: Do NOT include any phone numbers, email addresses, or physical addresses in the main response body. Replace 'Contact Us' sections with: 'Note: For more information or to apply, please refer to the contact details provided below.'\n"
+            "7. MANDATORY CTA TAG: You MUST end your response with the [CTA] tag.\n"
+            "8. DEVELOPER LINKS: If asked about your creator, present the links (GitHub, LinkedIn, Website) as clean Markdown links.\n\n"
+            "REQUIRED FINAL FORMAT:\n"
+            "[CTA]Note: Fees and statistics are subject to change.\n"
+            f"{cta}[/CTA]"
+        )
 
-        # Build message list (with history)
         messages = [{"role": "system", "content": system}]
-        messages.extend(history[-4:])
-        messages.append({"role": "user", "content": user_message})
+        
+        if "fees" not in user_message.lower():
+            messages.extend(history[-2:])
+            
+        # User prompt that encourages dynamic tables rather than forcing a broken hardcoded one
+        user_prompt = f"USER QUERY: {user_message}"
+        if "fees" in user_message.lower() or "structure" in user_message.lower() or "list" in user_message.lower():
+            user_prompt += "\n\nSTRICT REQUIREMENT: Present the requested data comprehensively. Do not omit any course or item mentioned in the context. If the data has multiple attributes (like fees), format it as a clean Markdown Table dynamically matching the context's columns."
+            
+        messages.append({"role": "user", "content": user_prompt})
 
         # Call LLM
         t1 = time.time()
@@ -483,10 +596,14 @@ class QdrantRAGEngine:
 
         if not answer:
             answer = (
-                "Abhi connection mein thodi problem hai. Kripya 0141-2338591 par call karein. 🙏"
+                "Abhi connection mein thodi problem hai. Kripya 8696218218 par call karein. 🙏"
                 if lang == "Hinglish" else
-                "I'm experiencing a connection issue. Please call **0141-2338591** for immediate assistance."
+                "I'm experiencing a connection issue. Please call **8696218218** for immediate assistance."
             )
+
+        # Force CTA if missing
+        if "[CTA]" not in answer:
+            answer += f"\n\n[CTA]{cta}[/CTA]"
 
         return {"answer": answer, "sources": sources[:3], "pdf_url": pdf}
 

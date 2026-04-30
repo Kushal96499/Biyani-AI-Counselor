@@ -54,6 +54,13 @@ async def read_index():
         return FileResponse(index_file)
     return {"detail": "Frontend index.html not found"}
 
+@app.get("/admin")
+async def read_admin():
+    admin_file = os.path.join(frontend_path, "admin.html")
+    if os.path.exists(admin_file):
+        return FileResponse(admin_file)
+    return {"detail": "Admin panel not found"}
+
 @app.on_event("startup")
 async def startup_event():
     # Optional: Trigger reindexing on startup if DB is empty

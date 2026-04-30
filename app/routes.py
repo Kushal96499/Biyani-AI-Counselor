@@ -30,6 +30,13 @@ class ChatResponse(BaseModel):
     sources: List[str]
     pdf_url: Optional[str] = None
 
+class AdminTextRequest(BaseModel):
+    text: str
+    source_name: Optional[str] = "manual"
+
+class AdminUrlRequest(BaseModel):
+    url: str
+
 class HealthResponse(BaseModel):
     status: str
 
@@ -170,61 +177,74 @@ async def pdf_proxy(url: str):
             status_code=200 # Return 200 so the iframe displays the content
         )
 
-@router.post("/reindex", dependencies=[Depends(verify_admin)])
-async def reindex(full: bool = False):
-    """
-    Reloads data. If full=True, clears database first. Otherwise, only adds new data.
-    """
-    try:
-        logger.info(f"Starting reindexing (Full={full})...")
-        
-        if full:
-            rag_engine.clear_database()
-            indexed_sources = set()
-        else:
-            indexed_sources = rag_engine.get_indexed_sources()
-            logger.info(f"Skipping {len(indexed_sources)} already indexed sources.")
-        
-        # 1. Load Remote PDFs from all_pdf_links.txt
-        pdf_links_path = os.path.join(settings.DATA_DIR, "all_pdf_links.txt")
-        if os.path.exists(pdf_links_path):
-            with open(pdf_links_path, "r") as f:
-                all_links = [line.strip() for line in f if line.strip()]
-            
-            # Filter only new links
-            new_links = [l for l in all_links if l not in indexed_sources]
-            if new_links:
-                logger.info(f"Indexing {len(new_links)} new remote PDFs...")
-                pdf_data = load_pdfs_from_links(new_links)
-                rag_engine.add_documents(pdf_data)
-            else:
-                logger.info("No new remote PDFs to index.")
+# ── Admin API Endpoints ───────────────────────────────────────────────────────
 
-        # 2. Load Scraped Web Content
-        urls_path = os.path.join(settings.DATA_DIR, "urls.txt")
-        if os.path.exists(urls_path):
-            with open(urls_path, "r") as f:
-                all_urls = [line.strip() for line in f if line.strip()]
+@router.get("/admin/stats", dependencies=[Depends(verify_admin)])
+async def get_admin_stats():
+    return rag_engine.get_collection_stats()
+
+@router.get("/admin/logs", dependencies=[Depends(verify_admin)])
+async def get_admin_logs():
+    # Return the recent chat history across sessions
+    logs = []
+    for ip, history in chat_history.items():
+        logs.append({"ip": ip, "messages": history})
+    return {"logs": logs}
+
+@router.post("/admin/add-text", dependencies=[Depends(verify_admin)])
+async def admin_add_text(req: AdminTextRequest):
+    success = rag_engine.add_texts([req.text], [{"source": req.source_name}])
+    if success:
+        return {"status": "success", "message": "Text successfully embedded and added to Qdrant."}
+    raise HTTPException(status_code=500, detail="Failed to add text to Qdrant.")
+
+@router.post("/admin/scrape", dependencies=[Depends(verify_admin)])
+async def admin_scrape_url(req: AdminUrlRequest):
+    # Future expansion: Web scraping
+    # For now, we will fetch the URL text directly
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        response = requests.get(req.url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, "html.parser")
+        
+        # Extract text from p, h1, h2, h3, li
+        texts = []
+        for tag in soup.find_all(['p', 'h1', 'h2', 'h3', 'li']):
+            t = tag.get_text(strip=True)
+            if t and len(t) > 20:
+                texts.append(t)
+        
+        full_text = "\n".join(texts)
+        if not full_text:
+            raise Exception("No meaningful text extracted from URL.")
             
-            new_urls = [u for u in all_urls if u not in indexed_sources]
-            if new_urls:
-                logger.info(f"Indexing {len(new_urls)} new web URLs...")
-                # We need to temporarily write these new URLs to a file for scrape_urls
-                # Or modify scrape_urls to accept a list. Let's keep it simple.
-                temp_file = os.path.join(settings.DATA_DIR, "temp_new_urls.txt")
-                with open(temp_file, "w") as f:
-                    for u in new_urls: f.write(u + "\n")
-                
-                web_data = scrape_urls(temp_file)
-                rag_engine.add_documents(web_data)
-                if os.path.exists(temp_file): os.remove(temp_file)
-            else:
-                logger.info("No new web URLs to index.")
-        
-        # 3. Load FAQs (Always refresh FAQs or skip if you prefer)
-        rag_engine.add_faqs(os.path.join(settings.DATA_DIR, "faqs.json"))
-        
-        return {"status": "success", "message": f"Reindexing completed. Added new data while keeping existing index."}
+        success = rag_engine.add_texts([full_text], [{"source": req.url}])
+        if success:
+            return {"status": "success", "message": f"Successfully scraped and added {len(texts)} paragraphs from URL."}
+        raise Exception("Failed to embed or save to Qdrant.")
     except Exception as e:
-        logger.error(f"Reindexing failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Reindexing failed: {str(e)}")
+        logger.error(f"Scrape failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to scrape URL: {str(e)}")
+
+@router.get("/admin/search-chunks", dependencies=[Depends(verify_admin)])
+async def admin_search_chunks(q: str):
+    chunks = rag_engine.search_chunks(q)
+    return {"chunks": chunks}
+
+@router.get("/admin/debug-embedding")
+async def debug_embedding(q: str = "test"):
+    vec = rag_engine._get_nvidia_vector(q)
+    return {"success": vec is not None, "length": len(vec) if vec else 0, "token_set": bool(os.getenv("OPENROUTER_API_KEY"))}
+
+@router.delete("/admin/delete-chunk/{point_id}", dependencies=[Depends(verify_admin)])
+async def admin_delete_chunk(point_id: str):
+    if rag_engine.delete_chunk(point_id):
+        return {"status": "success", "message": "Chunk deleted successfully."}
+    raise HTTPException(status_code=500, detail="Failed to delete chunk.")
+
+@router.post("/admin/clear", dependencies=[Depends(verify_admin)])
+async def admin_clear_db():
+    rag_engine.clear_database()
+    return {"status": "success", "message": "Database cleared successfully."}
