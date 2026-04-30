@@ -12,12 +12,12 @@ import os
 import re
 import time
 import logging
-import requests
+import asyncio
+import httpx
 from pathlib import Path
 from cachetools import TTLCache
 from dotenv import load_dotenv
-from google import genai
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import PointStruct
 import uuid
 
@@ -98,7 +98,7 @@ def _is_greeting(text: str) -> bool:
 
 
 # ── LLM Caller (Tiered: Groq → Gemini → NVIDIA → OpenRouter) ─────────────────
-def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
+async def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
     payload_base = {
         "messages":         messages,
         "temperature":      0.0, # Zero temperature = Strict Factual Accuracy
@@ -119,15 +119,15 @@ def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
                         content = content[:7000] + "... [Truncated]"
                     payload_msg.append({"role": m["role"], "content": content})
 
-                r = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    json={**payload_base, "messages": payload_msg, "model": model},
-                    headers={"Authorization": f"Bearer {GROQ_KEY}"},
-                    timeout=20
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                logger.warning(f"Groq {model} status: {r.status_code}")
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    r = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        json={**payload_base, "messages": payload_msg, "model": model},
+                        headers={"Authorization": f"Bearer {GROQ_KEY}"}
+                    )
+                    if r.status_code == 200:
+                        return r.json()["choices"][0]["message"]["content"].strip()
+                    logger.warning(f"Groq {model} status: {r.status_code}")
             except Exception as e:
                 logger.warning(f"Groq {model} failed: {e}")
 
@@ -140,15 +140,15 @@ def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
         ]
         for model in nvidia_models:
             try:
-                r = requests.post(
-                    "https://integrate.api.nvidia.com/v1/chat/completions",
-                    json={**payload_base, "model": model},
-                    headers={"Authorization": f"Bearer {NVIDIA_KEY}"},
-                    timeout=25
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                logger.warning(f"NVIDIA {model} status: {r.status_code}")
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    r = await client.post(
+                        "https://integrate.api.nvidia.com/v1/chat/completions",
+                        json={**payload_base, "model": model},
+                        headers={"Authorization": f"Bearer {NVIDIA_KEY}"}
+                    )
+                    if r.status_code == 200:
+                        return r.json()["choices"][0]["message"]["content"].strip()
+                    logger.warning(f"NVIDIA {model} status: {r.status_code}")
             except Exception as e:
                 logger.warning(f"NVIDIA {model} failed: {e}")
 
@@ -161,15 +161,15 @@ def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
         ]
         for model in or_models:
             try:
-                r = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    json={**payload_base, "model": model},
-                    headers={"Authorization": f"Bearer {OR_KEY}"},
-                    timeout=15
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                logger.warning(f"OpenRouter {model} status: {r.status_code}")
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    r = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        json={**payload_base, "model": model},
+                        headers={"Authorization": f"Bearer {OR_KEY}"}
+                    )
+                    if r.status_code == 200:
+                        return r.json()["choices"][0]["message"]["content"].strip()
+                    logger.warning(f"OpenRouter {model} status: {r.status_code}")
             except Exception as e:
                 logger.warning(f"OpenRouter {model} failed: {e}")
                 continue
@@ -191,18 +191,18 @@ def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
                         contents.append({"role": role, "parts": [{"text": m["content"]}]})
                         last_role = role
 
-                r = requests.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
-                    json={
-                        "contents": contents,
-                        "system_instruction": {"parts": [{"text": sys_text}]},
-                        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 4000 if is_complex else 2000}
-                    },
-                    timeout=20
-                )
-                if r.status_code == 200:
-                    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                logger.warning(f"Gemini {model} status: {r.status_code}")
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    r = await client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
+                        json={
+                            "contents": contents,
+                            "system_instruction": {"parts": [{"text": sys_text}]},
+                            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 4000 if is_complex else 2000}
+                        }
+                    )
+                    if r.status_code == 200:
+                        return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    logger.warning(f"Gemini {model} status: {r.status_code}")
             except Exception as e:
                 logger.warning(f"Gemini {model} failed: {e}")
 
@@ -216,17 +216,16 @@ _embedding_cache = TTLCache(maxsize=1000, ttl=3600)  # Cache 1k embeddings for 1
 
 class QdrantRAGEngine:
     def __init__(self):
-        self._qdrant: QdrantClient | None = None
+        self._qdrant: AsyncQdrantClient | None = None
         self.gemini_key = GEMINI_KEY
         
         try:
-            self._qdrant = QdrantClient(
+            self._qdrant = AsyncQdrantClient(
                 url=QDRANT_URL,
                 api_key=QDRANT_API_KEY,
-                timeout=25,
-                check_compatibility=False
+                timeout=25
             )
-            logger.info(f"Qdrant connected. Collection: {COLLECTION}")
+            logger.info(f"Async Qdrant connected. Collection: {COLLECTION}")
         except Exception as e:
             logger.error(f"Qdrant init failed: {e}")
 
@@ -235,45 +234,46 @@ class QdrantRAGEngine:
         text = re.sub(r'\s+', ' ', text)
         return text
 
-    def _get_nvidia_vector(self, text: str) -> list[float] | None:
+    async def _get_nvidia_vector(self, text: str) -> list[float] | None:
         token = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not token:
             return None
             
         try:
-            url = "https://openrouter.ai/api/v1/embeddings"
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
-                "input": text
-            }
-            r = requests.post(url, json=payload, headers=headers, timeout=15)
-            if r.status_code == 200:
-                return r.json()["data"][0]["embedding"]
-            logger.warning(f"NVIDIA API failed ({r.status_code}): {r.text}")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                url = "https://openrouter.ai/api/v1/embeddings"
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+                    "input": text
+                }
+                r = await client.post(url, json=payload, headers=headers)
+                if r.status_code == 200:
+                    return r.json()["data"][0]["embedding"]
+                logger.warning(f"NVIDIA API failed ({r.status_code}): {r.text}")
         except Exception as e:
             logger.warning(f"NVIDIA API exception: {e}")
         return None
 
-    def _get_vector(self, text: str) -> list[float] | None:
+    async def _get_vector(self, text: str) -> list[float] | None:
         query = self._normalize_query(text)
         if query in _embedding_cache:
             return _embedding_cache[query]
 
-        vec = self._get_nvidia_vector(query)
+        vec = await self._get_nvidia_vector(query)
         if vec:
             _embedding_cache[query] = vec
         return vec
 
-    def _retrieve(self, query: str) -> list[dict]:
+    async def _retrieve(self, query: str) -> list[dict]:
         if not self._qdrant:
             logger.error("Qdrant not initialized.")
             return[]
 
-        vec = self._get_vector(query)
+        vec = await self._get_vector(query)
         if not vec:
             logger.error("Embedding failed — skipping retrieval.")
             return[]
@@ -281,7 +281,7 @@ class QdrantRAGEngine:
         try:
             TARGET_COLLECTION = "biyani_ai_nvidia_v2"
             
-            response = self._qdrant.query_points(
+            response = await self._qdrant.query_points(
                 collection_name=TARGET_COLLECTION,
                 query=vec,
                 limit=RETRIEVAL_LIMIT,
@@ -291,13 +291,13 @@ class QdrantRAGEngine:
             hits = response.points
             
             if hits:
-                return self._rerank(query, hits)
+                return await self._rerank(query, hits)
             return[]
         except Exception as e:
             logger.error(f"Retrieval failed: {e}")
             return[]
 
-    def _rerank(self, query: str, hits: list) -> list[dict]:
+    async def _rerank(self, query: str, hits: list) -> list[dict]:
         token = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not token or not hits:
             return[h.payload for h in hits[:8]]
@@ -316,7 +316,8 @@ class QdrantRAGEngine:
                 "temperature": 0
             }
             
-            r = requests.post(url, json=payload, headers=headers, timeout=10)
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.post(url, json=payload, headers=headers)
             if r.status_code == 200:
                 indices_text = r.json()["choices"][0]["message"]["content"].strip().upper()
                 if "NONE" not in indices_text:
@@ -343,10 +344,10 @@ class QdrantRAGEngine:
 
 
     # ── Admin Panel Integrations ──────────────────────────────────────────────
-    def get_collection_stats(self) -> dict:
+    async def get_collection_stats(self) -> dict:
         if not self._qdrant: return {"error": "Qdrant not connected"}
         try:
-            info = self._qdrant.get_collection(COLLECTION)
+            info = await self._qdrant.get_collection(COLLECTION)
             return {
                 "collection_name": COLLECTION,
                 "points_count": info.points_count,
@@ -355,12 +356,12 @@ class QdrantRAGEngine:
         except Exception as e:
             return {"error": str(e)}
 
-    def clear_database(self):
+    async def clear_database(self):
         if not self._qdrant: return
         try:
             from qdrant_client.models import VectorParams, Distance
-            self._qdrant.delete_collection(COLLECTION)
-            self._qdrant.create_collection(
+            await self._qdrant.delete_collection(COLLECTION)
+            await self._qdrant.create_collection(
                 collection_name=COLLECTION,
                 vectors_config=VectorParams(size=2048, distance=Distance.COSINE)
             )
@@ -371,7 +372,7 @@ class QdrantRAGEngine:
     def get_indexed_sources(self):
         return set()
 
-    def add_texts(self, texts: list[str], metadata: list[dict] = None):
+    async def add_texts(self, texts: list[str], metadata: list[dict] = None):
         if not self._qdrant: return False
         
         def chunk_text(t, max_words=400): # Increased for better semantic context
@@ -383,7 +384,7 @@ class QdrantRAGEngine:
             chunks = chunk_text(text)
             meta = metadata[i] if metadata and i < len(metadata) else {"source": "manual_upload"}
             for chunk in chunks:
-                vec = self._get_nvidia_vector(chunk)
+                vec = await self._get_nvidia_vector(chunk)
                 if vec:
                     point_id = uuid.uuid4().hex
                     points.append(
@@ -396,7 +397,7 @@ class QdrantRAGEngine:
         
         if points:
             try:
-                self._qdrant.upsert(
+                await self._qdrant.upsert(
                     collection_name=COLLECTION,
                     points=points
                 )
@@ -407,14 +408,14 @@ class QdrantRAGEngine:
                 return False
         return False
 
-    def search_chunks(self, text: str, limit: int = 10):
+    async def search_chunks(self, text: str, limit: int = 10):
         if not self._qdrant: return []
-        vec = self._get_nvidia_vector(text)
+        vec = await self._get_nvidia_vector(text)
         if not vec: return[]
         
         try:
             TARGET_COLLECTION = "biyani_ai_nvidia_v2"
-            res = self._qdrant.query_points(
+            res = await self._qdrant.query_points(
                 collection_name=TARGET_COLLECTION,
                 query=vec,
                 limit=limit,
@@ -425,7 +426,7 @@ class QdrantRAGEngine:
             logger.error(f"Chunk search failed: {e}")
             return[]
             
-    def delete_chunk(self, point_id: str):
+    async def delete_chunk(self, point_id: str):
         if not self._qdrant: return False
         try:
             TARGET_COLLECTION = "biyani_ai_nvidia_v2"
@@ -435,7 +436,7 @@ class QdrantRAGEngine:
                 pid = point_id
 
             from qdrant_client.models import PointIdsList
-            self._qdrant.delete(
+            await self._qdrant.delete(
                 collection_name=TARGET_COLLECTION, 
                 points_selector=PointIdsList(points=[pid])
             )
@@ -448,7 +449,7 @@ class QdrantRAGEngine:
     def add_faqs(self, path): pass
 
     # ── Main Query Handler ────────────────────────────────────────────────────
-    def query(self, user_message: str, history: list[dict] | None = None) -> dict:
+    async def query(self, user_message: str, history: list[dict] | None = None) -> dict:
         if history is None:
             history =[]
 
@@ -491,19 +492,19 @@ class QdrantRAGEngine:
         
         # Increase retrieval depth
         RETRIEVAL_LIMIT_S = 25 
-        vec = self._get_vector(search_query)
+        vec = await self._get_vector(search_query)
         if not vec:
             chunks = []
         else:
             try:
-                response = self._qdrant.query_points(
+                response = await self._qdrant.query_points(
                     collection_name="biyani_ai_nvidia_v2",
                     query=vec,
                     limit=RETRIEVAL_LIMIT_S,
                     score_threshold=0.15, # Slightly more permissive
                     with_payload=True
                 )
-                chunks = self._rerank(search_query, response.points)
+                chunks = await self._rerank(search_query, response.points)
             except:
                 chunks = []
         
@@ -591,7 +592,7 @@ class QdrantRAGEngine:
 
         # Call LLM
         t1 = time.time()
-        answer = _call_llm(messages, is_complex=is_complex)
+        answer = await _call_llm(messages, is_complex=is_complex)
         logger.info(f"[LLM] Responded in {time.time()-t1:.2f}s")
 
         if not answer:

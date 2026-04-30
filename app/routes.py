@@ -60,7 +60,7 @@ async def debug_status():
             q_status = "CONNECTED"
             
             # Test actual retrieval
-            test_chunks = rag_engine._retrieve("admission")
+            test_chunks = await rag_engine._retrieve("admission")
             test_results = f"Found {len(test_chunks)} chunks" if test_chunks else "0 chunks found"
     except Exception as e:
         q_status = f"ERROR: {str(e)}"
@@ -110,7 +110,7 @@ async def chat(request: Request, body: ChatRequest):
             chat_history[session_id].append({"role": "user", "content": user_msg})
 
         # Query the RAG engine
-        result = rag_engine.query(user_msg, history=history_window)
+        result = await rag_engine.query(user_msg, history=history_window)
         
         if not result or not result.get("answer"):
             raise Exception("RAG Engine returned empty response")
@@ -134,7 +134,7 @@ async def chat(request: Request, body: ChatRequest):
         }
 
 from fastapi.responses import StreamingResponse
-import requests
+import httpx
 
 @router.get("/pdf-proxy")
 async def pdf_proxy(url: str):
@@ -147,21 +147,19 @@ async def pdf_proxy(url: str):
             "Referer": "https://www.biyanicolleges.org/",
             "Origin": "https://www.biyanicolleges.org"
         }
-        response = requests.get(url, stream=True, timeout=20, headers=headers)
-        response.raise_for_status()
-        
-        # Determine media type (PDF or HTML for flipbooks)
-        media_type = "application/pdf" if ".pdf" in url.lower() else "text/html"
-        
-        # Stream the content back to the client
-        return StreamingResponse(
-            response.iter_content(chunk_size=8192),
-            media_type=media_type,
-            headers={
-                "Content-Disposition": "inline",
-                "Access-Control-Allow-Origin": "*"
-            }
-        )
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(url, headers=headers, follow_redirects=True)
+            response.raise_for_status()
+            
+            # Stream the content back to the client
+            return StreamingResponse(
+                response.aiter_bytes(),
+                media_type=response.headers.get("Content-Type", "application/pdf"),
+                headers={
+                    "Content-Disposition": "inline",
+                    "Access-Control-Allow-Origin": "*"
+                }
+            )
     except Exception as e:
         logger.error(f"PDF Proxy failed for {url}: {str(e)}")
         # Return a friendly HTML error instead of JSON for the iframe
@@ -181,7 +179,7 @@ async def pdf_proxy(url: str):
 
 @router.get("/admin/stats", dependencies=[Depends(verify_admin)])
 async def get_admin_stats():
-    return rag_engine.get_collection_stats()
+    return await rag_engine.get_collection_stats()
 
 @router.get("/admin/logs", dependencies=[Depends(verify_admin)])
 async def get_admin_logs():
@@ -193,7 +191,7 @@ async def get_admin_logs():
 
 @router.post("/admin/add-text", dependencies=[Depends(verify_admin)])
 async def admin_add_text(req: AdminTextRequest):
-    success = rag_engine.add_texts([req.text], [{"source": req.source_name}])
+    success = await rag_engine.add_texts([req.text], [{"source": req.source_name}])
     if success:
         return {"status": "success", "message": "Text successfully embedded and added to Qdrant."}
     raise HTTPException(status_code=500, detail="Failed to add text to Qdrant.")
@@ -203,10 +201,9 @@ async def admin_scrape_url(req: AdminUrlRequest):
     # Future expansion: Web scraping
     # For now, we will fetch the URL text directly
     try:
-        import requests
-        from bs4 import BeautifulSoup
-        response = requests.get(req.url, timeout=10)
-        response.raise_for_status()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(req.url)
+            response.raise_for_status()
         soup = BeautifulSoup(response.content, "html.parser")
         
         # Extract text from p, h1, h2, h3, li
@@ -220,7 +217,7 @@ async def admin_scrape_url(req: AdminUrlRequest):
         if not full_text:
             raise Exception("No meaningful text extracted from URL.")
             
-        success = rag_engine.add_texts([full_text], [{"source": req.url}])
+        success = await rag_engine.add_texts([full_text], [{"source": req.url}])
         if success:
             return {"status": "success", "message": f"Successfully scraped and added {len(texts)} paragraphs from URL."}
         raise Exception("Failed to embed or save to Qdrant.")
@@ -230,21 +227,21 @@ async def admin_scrape_url(req: AdminUrlRequest):
 
 @router.get("/admin/search-chunks", dependencies=[Depends(verify_admin)])
 async def admin_search_chunks(q: str):
-    chunks = rag_engine.search_chunks(q)
+    chunks = await rag_engine.search_chunks(q)
     return {"chunks": chunks}
 
 @router.get("/admin/debug-embedding")
 async def debug_embedding(q: str = "test"):
-    vec = rag_engine._get_nvidia_vector(q)
+    vec = await rag_engine._get_nvidia_vector(q)
     return {"success": vec is not None, "length": len(vec) if vec else 0, "token_set": bool(os.getenv("OPENROUTER_API_KEY"))}
 
 @router.delete("/admin/delete-chunk/{point_id}", dependencies=[Depends(verify_admin)])
 async def admin_delete_chunk(point_id: str):
-    if rag_engine.delete_chunk(point_id):
+    if await rag_engine.delete_chunk(point_id):
         return {"status": "success", "message": "Chunk deleted successfully."}
     raise HTTPException(status_code=500, detail="Failed to delete chunk.")
 
 @router.post("/admin/clear", dependencies=[Depends(verify_admin)])
 async def admin_clear_db():
-    rag_engine.clear_database()
+    await rag_engine.clear_database()
     return {"status": "success", "message": "Database cleared successfully."}
