@@ -85,6 +85,17 @@ class RedisCacheManager:
         
         return None
 
+    async def clear_cache(self):
+        """Clears all cached chat data."""
+        if not self.is_active: return
+        try:
+            # Delete exact match keys and semantic list
+            # A simpler way for Upstash is FLUSHDB if only used for this app
+            await self._redis_cmd(["FLUSHDB"])
+            logger.info("Redis Cache cleared successfully.")
+        except Exception as e:
+            logger.error(f"Failed to clear Redis Cache: {e}")
+
     async def set_cache(self, query: str, answer: str, embedding: list, pdf_url: str = None):
         if not self.is_active or not answer or "sorry" in answer.lower():
             return

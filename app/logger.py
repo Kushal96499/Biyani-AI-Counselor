@@ -38,3 +38,33 @@ def log_chat(question: str, answer: str, response_time: float):
     """Logs chat interactions to chat.log"""
     log_entry = f"QUESTION: {question} | ANSWER: {answer} | TIME: {response_time:.4f}s"
     chat_logger.info(log_entry)
+
+def get_recent_logs(limit: int = 50):
+    """Reads the last few lines from chat.log"""
+    log_path = os.path.join(LOG_DIR, "chat.log")
+    if not os.path.exists(log_path):
+        return []
+    try:
+        with open(log_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            return lines[-limit:]
+    except Exception:
+        return []
+
+def get_chat_stats():
+    """Calculates total questions and unique sessions from chat.log"""
+    log_path = os.path.join(LOG_DIR, "chat.log")
+    if not os.path.exists(log_path):
+        return {"total_questions": 0, "unique_sessions": 0}
+    try:
+        with open(log_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            questions = content.count("QUESTION:")
+            # Simple heuristic for unique sessions: count unique timestamps (approx)
+            # Better: count unique occurrences of "QUESTION:" entries
+            return {
+                "total_questions": questions,
+                "unique_sessions": len(set(re.findall(r'\d{4}-\d{2}-\d{2} \d{2}', content))) # Unique hours as proxy
+            }
+    except Exception:
+        return {"total_questions": 0, "unique_sessions": 0}

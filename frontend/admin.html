@@ -348,44 +348,78 @@
                         )}
 
                         {activeTab === 'dashboard' && (
-                            <div className="max-w-6xl mx-auto">
-                                <header className="mb-8">
-                                    <h2 className="text-3xl font-extrabold text-biyani-blue mb-1">Dashboard</h2>
-                                    <p className="text-gray-500">System status and usage analytics.</p>
+                            <div className="max-w-6xl mx-auto animate-in fade-in duration-500">
+                                <header className="mb-10 flex justify-between items-end">
+                                    <div>
+                                        <h2 className="text-4xl font-extrabold text-biyani-blue tracking-tight">Dashboard</h2>
+                                        <p className="text-gray-500 mt-1 font-medium">Real-time system intelligence & analytics</p>
+                                    </div>
+                                    <button onClick={fetchStats} className="bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-50 transition shadow-sm">
+                                        Refresh Data
+                                    </button>
                                 </header>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                                    <div className="bg-white p-6 rounded-xl shadow-soft border border-gray-100 card-hover">
-                                        <h3 className="text-gray-500 font-semibold mb-2">Saved Data Chunks</h3>
-                                        <p className="text-4xl font-extrabold text-biyani-red">{stats ? stats.points_count : '...'}</p>
-                                        <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-green-600 bg-green-50 w-fit px-3 py-1 rounded-full">
-                                            Active Database
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                                    <div className="bg-white p-8 rounded-2xl shadow-soft border-b-4 border-biyani-red relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition">
+                                            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                                        </div>
+                                        <h3 className="text-gray-500 font-bold uppercase tracking-wider text-xs mb-3">Knowledge Base</h3>
+                                        <p className="text-5xl font-black text-biyani-blue">{stats ? stats.points_count.toLocaleString() : '...'}</p>
+                                        <p className="text-sm text-gray-400 mt-2 font-medium">Data Chunks Indexed</p>
+                                    </div>
+
+                                    <div className="bg-gradient-to-br from-biyani-blue to-blue-900 p-8 rounded-2xl shadow-lg text-white relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-30 transition">
+                                            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"></path><path d="M12 2a10 10 0 0 1 10 10h-10V2z"></path><path d="M12 12L2.2 9"></path><path d="M12 12L19 5"></path></svg>
+                                        </div>
+                                        <h3 className="text-blue-200 font-bold uppercase tracking-wider text-xs mb-3">AI Intelligence</h3>
+                                        <p className="text-3xl font-black mb-1">NVIDIA NIM</p>
+                                        <div className="flex items-center gap-2 mt-3">
+                                            <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse"></span>
+                                            <span className="text-xs font-bold text-blue-100">Nemotron 300M Active</span>
                                         </div>
                                     </div>
-                                    <div className="bg-white p-6 rounded-xl shadow-soft border border-gray-100 card-hover">
-                                        <h3 className="text-gray-500 font-semibold mb-2">AI Brain Engine</h3>
-                                        <p className="text-2xl font-bold text-biyani-blue mt-2">NVIDIA NIM</p>
-                                        <p className="text-sm text-gray-500 mt-1">2048 Dimensions</p>
-                                    </div>
-                                    <div className="bg-white p-6 rounded-xl shadow-soft border border-gray-100 card-hover">
-                                        <h3 className="text-gray-500 font-semibold mb-2">Chatbot Model</h3>
-                                        <p className="text-2xl font-bold text-biyani-blue mt-2">Llama 3.3 70B</p>
-                                        <p className="text-sm text-gray-500 mt-1">Strict Rules Active</p>
+
+                                    <div className="bg-white p-8 rounded-2xl shadow-soft border-b-4 border-blue-500 relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition">
+                                            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                                        </div>
+                                        <h3 className="text-gray-500 font-bold uppercase tracking-wider text-xs mb-3">Chat Logic</h3>
+                                        <p className="text-3xl font-black text-biyani-blue">Llama 3.3</p>
+                                        <p className="text-sm text-gray-400 mt-2 font-medium">Groq Accelerated 🚀</p>
                                     </div>
                                 </div>
                                 
-                                <h3 className="text-xl font-bold text-biyani-blue mb-4">Today's Chat Activity</h3>
-                                <div className="bg-white p-6 rounded-xl shadow-soft border border-gray-100">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div className="bg-gray-50 p-6 rounded-lg border border-gray-100">
-                                            <p className="text-gray-500 font-semibold mb-2">Active Students (Sessions)</p>
-                                            <p className="text-4xl font-extrabold text-biyani-red">{logs.length}</p>
-                                        </div>
-                                        <div className="bg-gray-50 p-6 rounded-lg border border-gray-100">
-                                            <p className="text-gray-500 font-semibold mb-2">Total Questions Asked</p>
-                                            <p className="text-4xl font-extrabold text-biyani-blue">
-                                                {logs.reduce((acc, curr) => acc + curr.messages.length, 0)}
+                                <h3 className="text-2xl font-bold text-biyani-blue mb-6 flex items-center gap-3">
+                                    <span className="bg-red-100 p-2 rounded-lg text-biyani-red">📈</span>
+                                    Lifetime Interaction Analytics
+                                </h3>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div className="bg-white p-10 rounded-2xl shadow-soft border border-gray-100 flex items-center justify-between group hover:border-biyani-red transition-all">
+                                        <div>
+                                            <p className="text-gray-500 font-bold text-sm uppercase tracking-widest mb-1">Total Student Queries</p>
+                                            <p className="text-6xl font-black text-biyani-red tracking-tighter">
+                                                {stats ? stats.total_questions : '0'}
                                             </p>
+                                            <p className="text-xs text-gray-400 mt-2 font-medium">Persistent Log-based Data</p>
+                                        </div>
+                                        <div className="bg-red-50 p-6 rounded-full text-biyani-red group-hover:scale-110 transition">
+                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-10 rounded-2xl shadow-soft border border-gray-100 flex items-center justify-between group hover:border-biyani-blue transition-all">
+                                        <div>
+                                            <p className="text-gray-500 font-bold text-sm uppercase tracking-widest mb-1">Unique Counselor Sessions</p>
+                                            <p className="text-6xl font-black text-biyani-blue tracking-tighter">
+                                                {stats ? stats.unique_sessions : '0'}
+                                            </p>
+                                            <p className="text-xs text-gray-400 mt-2 font-medium">Across Different Time Slots</p>
+                                        </div>
+                                        <div className="bg-blue-50 p-6 rounded-full text-biyani-blue group-hover:scale-110 transition">
+                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                                         </div>
                                     </div>
                                 </div>
@@ -438,6 +472,7 @@
                                             <button disabled={loading} type="submit" className="w-full bg-biyani-blue hover:bg-blue-900 text-white p-3 rounded-lg font-bold transition disabled:opacity-50">
                                                 {loading ? 'Processing...' : 'Save Information'}
                                             </button>
+                                            <p className="text-[10px] text-center text-green-600 font-semibold mt-1">✨ Auto-clears Redis cache for instant updates</p>
                                         </form>
                                     </div>
 
@@ -462,6 +497,7 @@
                                             <button disabled={loading} type="submit" className="w-full bg-biyani-red hover:bg-red-900 text-white p-3 rounded-lg font-bold transition disabled:opacity-50">
                                                 {loading ? 'Extracting Data...' : 'Scrape Website'}
                                             </button>
+                                            <p className="text-[10px] text-center text-green-600 font-semibold mt-1">✨ Auto-clears Redis cache for instant updates</p>
                                         </form>
                                     </div>
                                 </div>
@@ -573,9 +609,12 @@
                                             <h3 className="text-xl font-bold text-biyani-red mb-2">Clear Entire Database</h3>
                                             <p className="text-gray-600 text-sm max-w-lg">This will delete all the information you have added so far. The chatbot will instantly forget everything and you will have to add information again.</p>
                                         </div>
-                                        <button disabled={loading} onClick={handleClearDB} className="bg-red-600 hover:bg-red-800 text-white px-6 py-4 rounded-lg font-bold transition shadow-md whitespace-nowrap">
-                                            Delete All Data
-                                        </button>
+                                        <div className="flex flex-col items-center gap-2">
+                                            <button disabled={loading} onClick={handleClearDB} className="bg-red-600 hover:bg-red-800 text-white px-6 py-4 rounded-lg font-bold transition shadow-md whitespace-nowrap">
+                                                Delete All Data
+                                            </button>
+                                            <p className="text-[10px] text-red-500 font-bold">Wipes Redis Cache too</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
