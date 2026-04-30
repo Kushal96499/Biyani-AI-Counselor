@@ -11,6 +11,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from cachetools import TTLCache
 
+router = APIRouter(redirect_slashes=True)
 limiter = Limiter(key_func=lambda r: f"{get_remote_address(r)}-{r.headers.get('user-agent', '')}")
 
 @router.on_event("shutdown")

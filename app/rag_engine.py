@@ -477,9 +477,9 @@ class QdrantRAGEngine:
         dev_info = ""
         if any(w in low_msg for w in ["build", "built", "develop", "developer", "creator", "made", "owner", "banaya", "kon hai", "who are you"]):
             dev_info = (
-                "\nCORE IDENTITY: This AI Counselor was developed by Kushal Kumawat, a 3rd-year student at Biyani College, on April 30, 2026. "
-                "If asked about your creator, always credit him warmly. "
-                "Developer Links: GitHub: https://github.com/Kushal96499/, LinkedIn: https://www.linkedin.com/in/kushal-ku/, Website: https://kushalkumawat.in/"
+                "\nCORE IDENTITY: This AI Counselor was developed by Kushal Kumawat, a 3rd-year student at Biyani College (Batch 2023-2026), created on April 30, 2026. "
+                "If asked about your creator, always credit him warmly and mention his links. "
+                "Developer Links: [GitHub](https://github.com/Kushal96499/), [LinkedIn](https://www.linkedin.com/in/kushal-ku/), [Website](https://kushalkumawat.in/)"
             )
         
         # Greeting short-circuit
