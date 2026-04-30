@@ -103,8 +103,8 @@ class RedisCacheManager:
         normalized = self._normalize_query(query)
         exact_key = self._get_exact_key(normalized)
         
-        # Use a long TTL (24 hours) by default since we auto-clear cache on new data upload
-        ttl = 86400 
+        # Use a very long TTL (1 year) since we auto-clear cache on new data upload
+        ttl = 31536000 
 
         cache_obj = {
             "query": query,

@@ -52,9 +52,6 @@ async def chat(body: ChatRequest, request: Request):
         
         response_time = time.time() - start_time
         log_chat(user_msg, result["answer"], response_time)
-
-        if active_requests > 1:
-            result["answer"] += f"\n\n*System is currently busy. Your request was processed alongside {active_requests-1} other users.*"
         
         return result
     except Exception as e:
