@@ -473,7 +473,7 @@ class QdrantRAGEngine:
             dev_info = (
                 "\nCORE IDENTITY: This AI Counselor was developed by Kushal Kumawat, a 3rd-year student at Biyani College, on April 30, 2026. "
                 "If asked about your creator, always credit him warmly. "
-                "Developer Links: GitHub: https://github.com/Kushal96499/, LinkedIn: https://www.linkedin.com/in/kushal-ku/, Website: kushalkumawat.in"
+                "Developer Links: GitHub: https://github.com/Kushal96499/, LinkedIn: https://www.linkedin.com/in/kushal-ku/, Website: https://kushalkumawat.in/"
             )
         
         # Greeting short-circuit
