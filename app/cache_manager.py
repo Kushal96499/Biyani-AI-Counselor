@@ -77,7 +77,7 @@ class RedisCacheManager:
                 for entry_json in semantic_list:
                     entry = json.loads(entry_json)
                     similarity = self._calculate_cosine_similarity(query_embedding, entry["embedding"])
-                    if similarity > 0.92: # Strict threshold for semantic reuse
+                    if similarity > 0.88: # Relaxed threshold for better semantic reuse
                         logger.info(f"Cache HIT (Semantic: {similarity:.2f}): {query}")
                         # Also save as exact match to speed up next time
                         await self.set_cache(query, entry["answer"], entry["embedding"])
