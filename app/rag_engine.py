@@ -596,7 +596,8 @@ class QdrantRAGEngine:
             "4. CLEAR STRUCTURE: Use bullet points for lists, bold text for key terms, and clear headings. Avoid long, dense paragraphs.\n"
             "5. DYNAMIC TABLES: If the context contains tabular data (like fee structures), ALWAYS render it as a clean Markdown table.\n"
             "6. PROFESSIONAL TONE: Be warm, encouraging, and professional. You are representing an elite institution.\n"
-            "7. CTA MANDATORY: Always conclude your response with the [CTA] tag provided below.\n"
+            "7. CTA MANDATORY: Conclude your response ONLY with the [CTA] tag. Do NOT type the contact details manually in the main text.\n"
+            "8. NO MANUAL CONTACT INFO: Do not repeat the address, phone numbers, or email in your answer body. The [CTA] tag will handle this automatically.\n"
         )
 
         messages = [{"role": "system", "content": system}]
@@ -626,9 +627,12 @@ class QdrantRAGEngine:
                 "I'm experiencing a connection issue. Please call **8696218218** for immediate assistance."
             )
 
-        # Force CTA if missing
+        # Force CTA if missing or ensure tags exist
         if "[CTA]" not in answer:
             answer += f"\n\n[CTA]{cta}[/CTA]"
+        elif "[/CTA]" not in answer:
+            # If LLM started [CTA] but forgot [/CTA]
+            answer += "[/CTA]"
 
         return {"answer": answer, "sources": sources[:3], "pdf_url": pdf}
 
