@@ -15,28 +15,20 @@ from app.cache_manager import cache_manager
 from app.logger import log_chat, get_recent_logs, logger
 from app.config import settings
 from app.auth import verify_admin
+import asyncio
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-class ChatResponse(BaseModel):
-    answer: str
-    sources: List[str]
-    pdf_url: Optional[str] = None
+class ChatRequest(BaseModel):
+    message: str
+    history: List[dict] = []
 
 class AdminUrlRequest(BaseModel):
     url: str
 
 # Global active requests tracker
 active_requests = 0
-
-class ChatRequest(BaseModel):
-    message: str
-    history: List[dict] = []
 
 @router.post("/chat")
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
@@ -51,7 +43,13 @@ async def chat(body: ChatRequest, request: Request):
         result = await rag_engine.query(user_msg, history)
         
         response_time = time.time() - start_time
+        ip = request.client.host
+        
+        # 1. Local File Logging (For backup)
         log_chat(user_msg, result["answer"], response_time)
+        
+        # 2. Global Redis Logging (Background task for Vercel/Global stats)
+        asyncio.create_task(cache_manager.log_chat_to_redis(user_msg, result["answer"], ip))
         
         return result
     except Exception as e:
@@ -79,14 +77,17 @@ async def pdf_proxy(url: str):
 
 @router.get("/admin/stats", dependencies=[Depends(verify_admin)])
 async def get_admin_stats():
-    from app.logger import get_chat_stats
     db_stats = await rag_engine.get_collection_stats()
-    chat_stats = get_chat_stats()
-    return {**db_stats, **chat_stats}
+    redis_stats = await cache_manager.get_redis_stats()
+    return {**db_stats, **redis_stats}
 
 @router.get("/admin/logs", dependencies=[Depends(verify_admin)])
 async def get_admin_logs():
-    return {"logs": get_recent_logs()}
+    # Return Redis-based logs for global visibility
+    redis_stats = await cache_manager.get_redis_stats()
+    # Format Redis logs to match previous UI structure if needed, or just return raw
+    formatted_logs = [{"ip": "Global", "messages": [{"role": "system", "content": log}]} for log in redis_stats["redis_logs"]]
+    return {"logs": formatted_logs}
 
 @router.post("/admin/scrape", dependencies=[Depends(verify_admin)])
 async def admin_scrape_url(req: AdminUrlRequest):

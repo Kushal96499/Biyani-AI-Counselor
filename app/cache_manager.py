@@ -130,6 +130,47 @@ class RedisCacheManager:
         await self._redis_cmd(["LPUSH", self._get_semantic_key_list(), json.dumps(semantic_entry)])
         await self._redis_cmd(["LTRIM", self._get_semantic_key_list(), "0", "99"]) # Keep only 100
 
+    async def log_chat_to_redis(self, question: str, answer: str, ip: str):
+        """Saves a chat log entry to a capped list in Redis and increments counters."""
+        if not self.is_active: return
+        try:
+            # 1. Increment Global Questions Counter
+            await self._redis_cmd(["INCR", "stats:total_questions"])
+            
+            # 2. Increment Unique Sessions (using IP+Hour as a set)
+            hour_key = f"stats:sessions:{time.strftime('%Y-%m-%d-%H')}"
+            await self._redis_cmd(["SADD", hour_key, ip])
+            await self._redis_cmd(["EXPIRE", hour_key, "172800"]) # Keep session sets for 48 hours
+            
+            # 3. Save Chat Log to a capped list (Keep last 100)
+            log_entry = f"{time.strftime('%Y-%m-%d %H:%M:%S')} | IP: {ip} | Q: {question[:50]}..."
+            await self._redis_cmd(["LPUSH", "stats:chat_logs", log_entry])
+            await self._redis_cmd(["LTRIM", "stats:chat_logs", "0", "99"]) # Keep only top 100
+        except Exception as e:
+            logger.error(f"Redis Logging failed: {e}")
+
+    async def get_redis_stats(self):
+        """Retrieves persistent stats from Redis."""
+        if not self.is_active: return {"total_questions": 0, "unique_sessions": 0, "redis_logs": []}
+        try:
+            # Get total questions
+            total = await self._redis_cmd(["GET", "stats:total_questions"])
+            
+            # Get unique sessions for current hour
+            sessions = await self._redis_cmd(["SCARD", f"stats:sessions:{time.strftime('%Y-%m-%d-%H')}"])
+            
+            # Get last 100 logs
+            logs = await self._redis_cmd(["LRANGE", "stats:chat_logs", "0", "99"])
+            
+            return {
+                "total_questions": int(total) if total else 0,
+                "unique_sessions": int(sessions) if sessions else 0,
+                "redis_logs": logs if logs else []
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch Redis stats: {e}")
+            return {"total_questions": 0, "unique_sessions": 0, "redis_logs": []}
+
     async def close(self):
         await self.client.aclose()
 
