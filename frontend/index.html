@@ -445,7 +445,7 @@
 
             const simulateTyping = (fullText, pdfUrl) => {
                 const startTime = Date.now();
-                const speed = 10; // 10ms per character
+                const speed = 2; // 2ms per character (Ultra Fast)
                 setIsTyping(true);
 
                 setMessages(prev => [...prev, { role: 'assistant', content: '', isTyping: true }]);
