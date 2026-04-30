@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import PointStruct
 import uuid
+from app.cache_manager import cache_manager
 
 # ── Load Environment ──────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -118,7 +119,7 @@ def _get_rule_boost(query: str) -> str:
 
 
 # ── RAG Intelligence Engine ───────────────────────────────────────────────────
-_embedding_cache = TTLCache(maxsize=2000, ttl=3600)
+# Semantic matching now handled by Redis
 
 class QdrantRAGEngine:
     def __init__(self):
@@ -138,6 +139,7 @@ class QdrantRAGEngine:
 
     async def close(self):
         await self._client.aclose()
+        await cache_manager.close()
         if self._qdrant:
             await self._qdrant.close()
 
@@ -149,7 +151,7 @@ class QdrantRAGEngine:
             "max_tokens":       2000 if is_complex else 1000,
         }
 
-        # Tier 1: GROQ
+        # Tier 1: GROQ (Fastest for Chat)
         if GROQ_KEY:
             for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
                 try:
@@ -167,9 +169,9 @@ class QdrantRAGEngine:
                     if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
                 except: continue
 
-        # Tier 2: NVIDIA
+        # Tier 2: NVIDIA (Working fallback)
         if NVIDIA_KEY:
-            for model in ["nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.1-405b-instruct"]:
+            for model in ["upstage/solar-10.7b-instruct", "meta/llama-3.1-70b-instruct"]:
                 try:
                     r = await self._client.post(
                         "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -181,7 +183,7 @@ class QdrantRAGEngine:
 
         # Tier 3: OpenRouter
         if OR_KEY:
-            for model in ["meta-llama/llama-3.1-70b-instruct", "mistralai/mistral-large-2407"]:
+            for model in ["meta-llama/llama-3.1-70b-instruct", "nvidia/nemotron-3-super-120b-a12b:free"]:
                 try:
                     r = await self._client.post(
                         "https://openrouter.ai/api/v1/chat/completions",
@@ -191,29 +193,6 @@ class QdrantRAGEngine:
                     if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
                 except: continue
 
-        # Tier 4: Gemini
-        if GEMINI_KEY:
-            for model in ["gemini-1.5-flash", "gemini-1.5-pro"]:
-                try:
-                    contents = []
-                    sys_text = ""
-                    for m in messages:
-                        if m["role"] == "system": sys_text = m["content"]
-                        else:
-                            role = "user" if m["role"] == "user" else "model"
-                            contents.append({"role": role, "parts": [{"text": m["content"]}]})
-
-                    r = await self._client.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
-                        json={
-                            "contents": contents,
-                            "system_instruction": {"parts": [{"text": sys_text}]},
-                            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2000}
-                        }
-                    )
-                    if r.status_code == 200: return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                except: continue
-
         return None
 
     def _normalize_query(self, text: str) -> str:
@@ -221,37 +200,39 @@ class QdrantRAGEngine:
         text = re.sub(r'\s+', ' ', text)
         return text
 
-    async def _get_nvidia_vector(self, text: str) -> list[float] | None:
-        token = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if not token:
-            return None
-            
+    async def _get_nvidia_nim_vector(self, text: str) -> list[float] | None:
+        token = os.getenv("NVIDIA_API_KEY", "").strip()
+        if not token: return None
         try:
-            url = "https://openrouter.ai/api/v1/embeddings"
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
+            url = "https://integrate.api.nvidia.com/v1/embeddings"
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
             payload = {
-                "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
-                "input": text
+                "model": "nvidia/nv-embed-v1",
+                "input": text,
+                "input_type": "query",
+                "encoding_format": "float"
             }
             r = await self._client.post(url, json=payload, headers=headers)
-            if r.status_code == 200:
-                return r.json()["data"][0]["embedding"]
-            logger.warning(f"NVIDIA API failed ({r.status_code}): {r.text}")
-        except Exception as e:
-            logger.warning(f"NVIDIA API exception: {e}")
+            if r.status_code == 200: return r.json()["data"][0]["embedding"]
+        except: pass
+        return None
+
+    async def _get_nvidia_vector(self, text: str) -> list[float] | None:
+        token = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if not token: return None
+        try:
+            url = "https://openrouter.ai/api/v1/embeddings"
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            payload = {"model": "nvidia/llama-nemotron-embed-vl-1b-v2:free", "input": text}
+            r = await self._client.post(url, json=payload, headers=headers)
+            if r.status_code == 200: return r.json()["data"][0]["embedding"]
+        except: pass
         return None
 
     async def _get_vector(self, text: str) -> list[float] | None:
         query = self._normalize_query(text)
-        if query in _embedding_cache:
-            return _embedding_cache[query]
-
+        # Use Nemotron (MATCHING THE INDEXED DATA)
         vec = await self._get_nvidia_vector(query)
-        if vec:
-            _embedding_cache[query] = vec
         return vec
 
     async def _retrieve(self, query: str) -> list[dict]:
@@ -435,14 +416,30 @@ class QdrantRAGEngine:
 
     # ── Main Query Handler ────────────────────────────────────────────────────
     async def query(self, user_message: str, history: list[dict] | None = None) -> dict:
+        """Core RAG pipeline with Redis caching."""
         if history is None:
             history =[]
 
         lang = _detect_language(user_message)
         pdf  = _get_pdf_url(user_message)
+        
+        # 1. Normalize and Check Cache (Exact + Semantic)
+        search_query = self._normalize_query(user_message)
+        
+        # Get query embedding early for semantic cache check
+        query_vec = await self._get_vector(search_query)
+        
+        # Check Redis Cache
+        cached_res = await cache_manager.get_cache(user_message, query_vec)
+        if cached_res:
+            return {
+                "answer": cached_res["answer"],
+                "sources": ["Verified Institutional Data"],
+                "pdf_url": cached_res.get("pdf_url"),
+                "is_cached": True
+            }
 
-        # Enhanced Query Expansion (Additive approach)
-        search_query = user_message
+        # 2. Query Expansion (Additive approach)
         low_msg = user_message.lower()
         if any(w in low_msg for w in ["fees", "fee", "paisa", "rupaye", "amount"]):
             search_query += " | Detailed fees structure, all courses, additional charges Biyani Group of Colleges"
@@ -488,7 +485,7 @@ class QdrantRAGEngine:
         logger.info(f"[Query] '{user_message}' (Search: '{search_query}') | Lang: {lang}")
         t0 = time.time()
         
-        # Increase retrieval depth
+        # Increased retrieval depth to ensure latest data is captured
         RETRIEVAL_LIMIT_S = 25 
         vec = await self._get_vector(search_query)
         if not vec:
@@ -499,7 +496,7 @@ class QdrantRAGEngine:
                     collection_name=COLLECTION,
                     query=vec,
                     limit=RETRIEVAL_LIMIT_S,
-                    score_threshold=0.15, # Slightly more permissive
+                    score_threshold=0.12, 
                     with_payload=True
                 )
                 chunks = await self._rerank(search_query, response.points)
@@ -634,7 +631,10 @@ class QdrantRAGEngine:
             # If LLM started [CTA] but forgot [/CTA]
             answer += "[/CTA]"
 
-        return {"answer": answer, "sources": sources[:3], "pdf_url": pdf}
+        final_result = {"answer": answer, "sources": sources[:3], "pdf_url": pdf}
+        if answer and query_vec and "sorry" not in answer.lower():
+            asyncio.create_task(cache_manager.set_cache(user_message, answer, query_vec, pdf))
+        return final_result
 
 
 rag_engine = QdrantRAGEngine()

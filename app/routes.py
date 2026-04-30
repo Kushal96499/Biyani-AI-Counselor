@@ -93,10 +93,14 @@ async def welcome():
 
 # In-memory history (last 5 messages per session)
 chat_history = {}
+# Global active requests tracker
+active_requests = 0
 
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
 async def chat(request: Request, body: ChatRequest):
+    global active_requests
+    active_requests += 1
     try:
         start_time = time.time()
         user_msg = body.message.strip()
@@ -133,6 +137,9 @@ async def chat(request: Request, body: ChatRequest):
         response_time = time.time() - start_time
         log_chat(user_msg, result["answer"], response_time)
 
+        # Include queue info if multiple users are active
+        result["queue_info"] = f"Processed with {active_requests-1} other active users" if active_requests > 1 else ""
+        
         return result
     except Exception as e:
         logger.error(f"CRITICAL CHAT ERROR: {str(e)}")
@@ -142,6 +149,8 @@ async def chat(request: Request, body: ChatRequest):
             "sources": [],
             "pdf_url": None
         }
+    finally:
+        active_requests -= 1
 
 from fastapi.responses import StreamingResponse
 import httpx
