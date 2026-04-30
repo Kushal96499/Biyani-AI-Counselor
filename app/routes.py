@@ -1,6 +1,6 @@
 import time
 import os
-from fastapi import APIRouter, HTTPException, Request, Depends, Header
+from fastapi import APIRouter, HTTPException, Request, Depends, Header, File, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
@@ -199,41 +199,41 @@ async def get_admin_logs():
         logs.append({"ip": ip, "messages": history})
     return {"logs": logs}
 
-@router.post("/admin/add-text", dependencies=[Depends(verify_admin)])
-async def admin_add_text(req: AdminTextRequest):
-    success = await rag_engine.add_texts([req.text], [{"source": req.source_name}])
-    if success:
-        return {"status": "success", "message": "Text successfully embedded and added to Qdrant."}
-    raise HTTPException(status_code=500, detail="Failed to add text to Qdrant.")
-
 @router.post("/admin/scrape", dependencies=[Depends(verify_admin)])
 async def admin_scrape_url(req: AdminUrlRequest):
-    # Future expansion: Web scraping
-    # For now, we will fetch the URL text directly
+    from bs4 import BeautifulSoup
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(req.url)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            response = await client.get(req.url, headers=headers)
             response.raise_for_status()
+            
         soup = BeautifulSoup(response.content, "html.parser")
         
-        # Extract text from p, h1, h2, h3, li
+        # Remove noisy elements
+        for noise in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav', 'aside', 'form']):
+            noise.decompose()
+            
+        # Extract text from meaningful blocks
         texts = []
-        for tag in soup.find_all(['p', 'h1', 'h2', 'h3', 'li']):
-            t = tag.get_text(strip=True)
-            if t and len(t) > 20:
+        for tag in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'article', 'section']):
+            # Ensure we don't pick up text from unwanted children or empty tags
+            t = tag.get_text(" ", strip=True)
+            # Filter for meaningful content (length and quality)
+            if t and len(t) > 30 and not any(ext in t.lower() for ext in ['.pdf', '.jpg', '.png', '.jpeg']):
                 texts.append(t)
         
-        full_text = "\n".join(texts)
-        if not full_text:
-            raise Exception("No meaningful text extracted from URL.")
+        full_text = "\n\n".join(texts)
+        if not full_text.strip():
+            raise Exception("No meaningful content text could be extracted from this page.")
             
-        success = await rag_engine.add_texts([full_text], [{"source": req.url}])
+        success = await rag_engine.add_texts([full_text], [{"url": req.url}])
         if success:
-            return {"status": "success", "message": f"Successfully scraped and added {len(texts)} paragraphs from URL."}
+            return {"status": "success", "message": f"Successfully scraped {len(texts)} content blocks from {req.url}."}
         raise Exception("Failed to embed or save to Qdrant.")
     except Exception as e:
-        logger.error(f"Scrape failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to scrape URL: {str(e)}")
+        logger.error(f"Scrape failed for {req.url}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Scraping Error: {str(e)}")
 
 @router.get("/admin/search-chunks", dependencies=[Depends(verify_admin)])
 async def admin_search_chunks(q: str):
@@ -255,3 +255,24 @@ async def admin_delete_chunk(point_id: str):
 async def admin_clear_db():
     await rag_engine.clear_database()
     return {"status": "success", "message": "Database cleared successfully."}
+
+@router.post("/admin/upload-pdf", dependencies=[Depends(verify_admin)])
+async def admin_upload_pdf(file: UploadFile = File(...)):
+    import fitz # PyMuPDF
+    try:
+        content = await file.read()
+        doc = fitz.open(stream=content, filetype="pdf")
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        
+        if not text.strip():
+            raise Exception("No text found in PDF.")
+            
+        success = await rag_engine.add_texts([text], [{"url": file.filename}])
+        if success:
+            return {"status": "success", "message": f"Successfully processed PDF '{file.filename}'."}
+        raise Exception("Failed to embed or save to Qdrant.")
+    except Exception as e:
+        logger.error(f"PDF Upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")

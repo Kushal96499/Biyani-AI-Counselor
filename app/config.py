@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Qdrant Cloud Configuration
     QDRANT_URL: Optional[str] = None
     QDRANT_API_KEY: Optional[str] = None
-    QDRANT_COLLECTION: str = "biyani_ai_clean_v2"
+    QDRANT_COLLECTION: str = "biyani_clean_v2"
 
     # NVIDIA NIM Configuration (Priority 1)
     NVIDIA_API_KEY: Optional[str] = None

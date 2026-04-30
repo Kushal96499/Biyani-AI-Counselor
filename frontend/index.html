@@ -167,6 +167,10 @@
             line-height: 1.7;
         }
 
+        .bubble-ai li::marker {
+            color: #8b0000;
+        }
+
         .bubble-user {
             background: #001e61;
             color: #fff;
@@ -432,7 +436,7 @@
                     .replace(/^## (.*$)/gim, '<h2 class="text-lg font-bold text-[#001e61] mt-5 mb-2">$1</h2>')
                     .replace(/^# (.*$)/gim, '<h1 class="text-xl font-extrabold text-[#001e61] mt-5 mb-2 border-b pb-1">$1</h1>')
                     .replace(/\*\*(.*?)\*\*/g, '<b class="text-[#8b0000]">$1</b>')
-                    .replace(/^\s*[\-\*\+]\s+(.*)/gm, '<li class="ml-4 list-disc mb-1 text-[#8b0000] font-bold">$1</li>')
+                    .replace(/^\s*[\-\*\+]\s+(.*)/gm, '<li class="ml-4 list-disc mb-1">$1</li>')
                     .replace(/\n\n/g, '<div class="h-2"></div>')
                     .replace(/\n/g, '<br/>');
 

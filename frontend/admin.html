@@ -64,6 +64,56 @@
             // Logs State
             const [logs, setLogs] = useState([]);
 
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                if (!file.name.endsWith('.txt')) {
+                    showNotification('Please upload a .txt file.', 'error');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    setManualText(event.target.result);
+                    if (!sourceName) setSourceName(file.name.replace('.txt', ''));
+                    showNotification('File loaded successfully! You can now edit and save.', 'success');
+                };
+                reader.readAsText(file);
+            };
+
+            const handlePdfUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                if (!file.name.endsWith('.pdf')) {
+                    showNotification('Please upload a .pdf file.', 'error');
+                    return;
+                }
+
+                setLoading(true);
+                showNotification(`Uploading and processing ${file.name}...`, 'info');
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const res = await fetch('/api/admin/upload-pdf', {
+                        method: 'POST',
+                        headers: { 'X-Admin-Token': token },
+                        body: formData
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        showNotification(`✅ PDF processed successfully!`, 'success');
+                        fetchStats();
+                    } else {
+                        showNotification('❌ ' + (data.detail || 'Upload failed.'), 'error');
+                    }
+                } catch (err) {
+                    showNotification('❌ Network Error.', 'error');
+                }
+                setLoading(false);
+                e.target.value = '';
+            };
+
             const showNotification = (text, type = 'success') => {
                 setNotification({ show: true, text, type });
                 setTimeout(() => setNotification({ show: false, text: '', type: 'info' }), 6000);
@@ -366,8 +416,24 @@
                                                         {manualText.length.toLocaleString()} / {MAX_TEXT_LIMIT.toLocaleString()} characters
                                                     </span>
                                                 </div>
-                                                <textarea rows="8" placeholder="Paste the text information here..." value={manualText} onChange={e=>{if(e.target.value.length <= MAX_TEXT_LIMIT) setManualText(e.target.value)}} className="w-full p-3 border border-gray-300 rounded-lg resize-none outline-none focus:ring-2 focus:ring-biyani-red" required></textarea>
-                                                <p className="text-[10px] text-gray-400 mt-1 italic">Large texts will be automatically split into optimized chunks for AI memory.</p>
+                                                 <textarea rows="8" placeholder="Paste the text information here..." value={manualText} onChange={e=>{if(e.target.value.length <= MAX_TEXT_LIMIT) setManualText(e.target.value)}} className="w-full p-3 border border-gray-300 rounded-lg resize-none outline-none focus:ring-2 focus:ring-biyani-red" required></textarea>
+                                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-2 gap-3">
+                                                    <p className="text-[10px] text-gray-400 italic max-w-[200px] sm:max-w-xs">Large texts will be automatically split into optimized chunks for AI memory.</p>
+                                                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                                                        <div className="relative">
+                                                            <input type="file" accept=".txt" onChange={handleFileUpload} className="hidden" id="txt-upload" />
+                                                            <label htmlFor="txt-upload" className="text-[10px] bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-md font-bold cursor-pointer transition border border-gray-200 whitespace-nowrap flex items-center gap-1">
+                                                                📁 .txt
+                                                            </label>
+                                                        </div>
+                                                        <div className="relative">
+                                                            <input type="file" accept=".pdf" onChange={handlePdfUpload} className="hidden" id="pdf-upload" />
+                                                            <label htmlFor="pdf-upload" className="text-[10px] bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded-md font-bold cursor-pointer transition border border-red-200 whitespace-nowrap flex items-center gap-1">
+                                                                📄 PDF
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <button disabled={loading} type="submit" className="w-full bg-biyani-blue hover:bg-blue-900 text-white p-3 rounded-lg font-bold transition disabled:opacity-50">
                                                 {loading ? 'Processing...' : 'Save Information'}

@@ -27,7 +27,7 @@ load_dotenv(ROOT / ".env")
 
 QDRANT_URL     = os.getenv("QDRANT_URL", "")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
-QDRANT_COLLECTION = "biyani_ai_nvidia_v2"
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "biyani_clean_v2")
 COLLECTION        = QDRANT_COLLECTION
 
 GROQ_KEY   = os.getenv("GROQ_API_KEY", "")
@@ -97,6 +97,24 @@ def _is_greeting(text: str) -> bool:
     return clean in greetings
 
 
+
+
+# ── Rule-Based Boost ────────────────────────────────────────────────────────
+RULE_BASED_KNOWLEDGE = {
+    "fees": "Biyani Group of Colleges offers competitive fee structures for various courses like BCA, BBA, MBA, MCA, B.Com, and more. Fees vary by course and college (Biyani Girls College, Biyani Institute of Science & Management, etc.). Scholarships are available based on merit and category. For exact current year fees, students should refer to the Admission Cell.",
+    "admission": "Admission at Biyani Group of Colleges is based on both merit and entrance exams (for specific courses like MBA/MCA). The process involves filling an online/offline application form, document verification, and a personal interview in some cases. Direct admission is available for many UG courses.",
+    "contact": "You can contact the Biyani Admission Cell at 8696218218 or 0141-2338591. Location: Sector-3, Vidhyadhar Nagar, Jaipur, Rajasthan 302039. Email: admissions@biyanicolleges.org",
+    "courses": "Biyani Group offers courses in IT (BCA, MCA, MSc IT), Management (BBA, MBA), Commerce (B.Com, M.Com), Science (B.Sc, M.Sc), Arts (BA, MA), and Law. We have specialized colleges for Girls and Co-ed institutions as well."
+}
+
+def _get_rule_boost(query: str) -> str:
+    ql = query.lower()
+    matches = []
+    if "fee" in ql or "paisa" in ql: matches.append(RULE_BASED_KNOWLEDGE["fees"])
+    if "admission" in ql or "apply" in ql or "process" in ql: matches.append(RULE_BASED_KNOWLEDGE["admission"])
+    if "contact" in ql or "call" in ql or "number" in ql or "address" in ql: matches.append(RULE_BASED_KNOWLEDGE["contact"])
+    if "course" in ql or "subject" in ql or "degree" in ql: matches.append(RULE_BASED_KNOWLEDGE["courses"])
+    return "\n".join(matches) if matches else ""
 
 
 # ── RAG Intelligence Engine ───────────────────────────────────────────────────
@@ -247,7 +265,7 @@ class QdrantRAGEngine:
             return[]
 
         try:
-            TARGET_COLLECTION = "biyani_ai_nvidia_v2"
+            TARGET_COLLECTION = COLLECTION
             
             response = await self._qdrant.query_points(
                 collection_name=TARGET_COLLECTION,
@@ -381,7 +399,7 @@ class QdrantRAGEngine:
         if not vec: return[]
         
         try:
-            TARGET_COLLECTION = "biyani_ai_nvidia_v2"
+            TARGET_COLLECTION = COLLECTION
             res = await self._qdrant.query_points(
                 collection_name=TARGET_COLLECTION,
                 query=vec,
@@ -396,7 +414,7 @@ class QdrantRAGEngine:
     async def delete_chunk(self, point_id: str):
         if not self._qdrant: return False
         try:
-            TARGET_COLLECTION = "biyani_ai_nvidia_v2"
+            TARGET_COLLECTION = COLLECTION
             try:
                 pid = int(point_id)
             except ValueError:
@@ -436,6 +454,8 @@ class QdrantRAGEngine:
                 search_query += " (Fetch names only if possible)"
         elif any(w in low_msg for w in ["college", "address", "contact", "location", "email", "phone", "helpline"]):
             search_query += " | Biyani Group of Colleges list, addresses, contact numbers, email, Biyani Girls College, Bright Moon, Beena Mahavidyalaya"
+        elif any(w in low_msg for w in ["workshop", "workshops", "linux", "rhcsa", "red hat"]):
+            search_query += " | Linux Red Hat workshop (RHCSA), 12-day workshop, hands-on training, system administration, shell scripting, virtualization, upcoming workshops"
         
         # Developer Identity Injection (Specific Trigger)
         dev_info = ""
@@ -446,6 +466,15 @@ class QdrantRAGEngine:
                 "Developer Links: [GitHub](https://github.com/Kushal96499/), [LinkedIn](https://www.linkedin.com/in/kushal-ku/), [Website](https://kushalkumawat.in/)"
             )
         
+        # Special Workshop Knowledge injection if relevant
+        workshop_knowledge = ""
+        if any(w in low_msg for w in ["linux", "workshop", "rhcsa"]):
+            workshop_knowledge = (
+                "\nLINUX WORKSHOP INFO: Biyani Group organized a 12-day Linux Red Hat workshop (RHCSA) in collaboration with RHEL. "
+                "Highlights: Hands-on training, real-world apps, expert faculty, certificates. "
+                "Concepts: Basic commands, SysAdmin, Shell scripting, Virtualization. "
+                "Upcoming: Another workshop is planned soon. Contact admissions@biyanicolleges.edu.in for details."
+            )
         # Greeting short-circuit
         if _is_greeting(user_message):
             msg = (
@@ -467,7 +496,7 @@ class QdrantRAGEngine:
         else:
             try:
                 response = await self._qdrant.query_points(
-                    collection_name="biyani_ai_nvidia_v2",
+                    collection_name=COLLECTION,
                     query=vec,
                     limit=RETRIEVAL_LIMIT_S,
                     score_threshold=0.15, # Slightly more permissive
@@ -487,18 +516,44 @@ class QdrantRAGEngine:
             )
             return {"answer": msg, "sources":[], "pdf_url": pdf}
 
-        # Build context & sources with deduplication (Increased to top 8 chunks to not miss data)
-        unique_chunks =[]
+        # --- SMART FILTERING & BEST CONTEXT SELECTION ---
+        filtered_chunks = []
         seen_texts = set()
+        RELEVANT_KEYWORDS = ["biyani", "college", "fees", "admission", "course", "placement", "hostel", "scholarship", "eligibility"]
+        
         for c in chunks:
             text = c.get("text", "").strip()
-            if text and text[:100] not in seen_texts:
-                unique_chunks.append(c)
-                seen_texts.add(text[:100])
+            word_count = len(text.split())
+            
+            # 1. Meaningful length (>120 words)
+            # 2. Keyword relevance
+            has_keywords = any(kw in text.lower() for kw in RELEVANT_KEYWORDS)
+            
+            if word_count > 120 and has_keywords:
+                if text[:100] not in seen_texts:
+                    filtered_chunks.append(c)
+                    seen_texts.add(text[:100])
         
-        # Taking up to 15 chunks for better coverage to avoid missing any data point
-        context = clean_text("\n---\n".join(c.get("text", "") for c in unique_chunks[:15]))
-        sources  = list(dict.fromkeys(c.get("url", "") for c in unique_chunks if c.get("url")))
+        # Fallback if filtering is too aggressive
+        if not filtered_chunks and chunks:
+            filtered_chunks = chunks[:5]
+            
+        # Select top 4 highly relevant chunks
+        final_chunks = filtered_chunks[:4]
+        
+        # Structured Context Format: [Section N]
+        context_parts = []
+        for i, c in enumerate(final_chunks):
+            content = c.get("text", "").strip()
+            context_parts.append(f"[Section {i+1}]\n{content}")
+            
+        context = clean_text("\n\n".join(context_parts))
+        
+        # Rule-based boost injection
+        rule_boost = _get_rule_boost(user_message)
+        if rule_boost:
+            context = f"[Core Policy & General Info]\n{rule_boost}\n\n" + context
+        sources  = list(dict.fromkeys(c.get("url", "") for c in final_chunks if c.get("url")))
 
         complex_keywords = {
             "fees", "fee", "admission", "admissions", "eligibility", "scholarship", "scholarships", 
@@ -526,22 +581,22 @@ class QdrantRAGEngine:
                 "Style: Clear, detailed, and extremely helpful for students. Provide satisfying answers."
             )
 
-        # S-Tier Dynamic System Prompt
+        # Optimized System Prompt
         system = (
             f"{tone_guidance}\n\n"
-            "ROLE: Expert AI Admission Counselor for Biyani Group of Colleges.\n"
-            f"{dev_info}\n\n"
-            "BIYANI KNOWLEDGE BASE (CONTEXT):\n"
+            "ROLE: You are the Senior Admission Counselor at Biyani Group of Colleges. Your goal is to provide accurate, structured, and helpful guidance to students and parents.\n"
+            f"{dev_info}\n"
+            f"{workshop_knowledge}\n\n"
+            "BIYANI KNOWLEDGE BASE (PRIMARY SOURCE):\n"
             f"{context}\n\n"
-            "STRICT DIRECTIVES (MUST FOLLOW TO PREVENT DATA LOSS):\n"
-            "1. CONTEXT-ONLY MODE: Base your answer ENTIRELY on the BIYANI KNOWLEDGE BASE provided above. Do NOT invent, assume, or alter any facts, figures, or fees. If the detail is not in the context, politely state you don't have that specific information.\n"
-            "2. COMPREHENSIVE COURSE & FEE DETAILS: When providing tables or lists, you MUST include the FULL description of each item as found in the context. Do NOT summarize or omit any row found in the retrieved data.\n"
-            "3. PRESERVE EXACT NUMBERS: Ensure all fees, scholarship percentages, dates, and numeric values match the context EXACTLY. Do not change headers or values.\n"
-            "4. DYNAMIC FORMATTING & TABLES: Use Markdown for structure. Use proper headers (##, ###) for sections. MANDATORY: Any data presented as a list with multiple columns MUST be converted into a clean Markdown Table using pipe (|) separators.\n"
-            "5. NO DUPLICATION: Deduplicate entries if they appear multiple times in the context, but keep the most detailed version.\n"
-            "6. NO CONTACT INFO IN MAIN TEXT: Do NOT include any phone numbers, email addresses, or physical addresses in the main response body. Replace 'Contact Us' sections with: 'Note: For more information or to apply, please refer to the contact details provided below.'\n"
-            "7. MANDATORY CTA TAG: You MUST end your response with the [CTA] tag.\n"
-            "8. DEVELOPER LINKS: If asked about your creator, present the links (GitHub, LinkedIn, Website) as clean Markdown links. and also the mention date of creating"
+            "STRICT OPERATIONAL DIRECTIVES:\n"
+            "1. CONTEXT FIRST: Use the provided BIYANI KNOWLEDGE BASE as your primary source of truth. Prioritize it over general knowledge.\n"
+            "2. NO HALLUCINATION: Do NOT invent fees, dates, or specific policies. If the context is missing specific details, provide a general helpful answer based on Biyani's known standards and guide the user to the contact details below.\n"
+            "3. NO 'NO DATA' RESPONSES: Never say 'I don't have this data'. Instead, provide what you know and pivot to helpful next steps (e.g., 'For specific fee breakdowns, our admission cell can provide the latest 2024-25 document...').\n"
+            "4. CLEAR STRUCTURE: Use bullet points for lists, bold text for key terms, and clear headings. Avoid long, dense paragraphs.\n"
+            "5. DYNAMIC TABLES: If the context contains tabular data (like fee structures), ALWAYS render it as a clean Markdown table.\n"
+            "6. PROFESSIONAL TONE: Be warm, encouraging, and professional. You are representing an elite institution.\n"
+            "7. CTA MANDATORY: Always conclude your response with the [CTA] tag provided below.\n"
         )
 
         messages = [{"role": "system", "content": system}]

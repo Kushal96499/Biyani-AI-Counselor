@@ -12,3 +12,5 @@ qdrant-client
 google-genai
 httpx
 asyncio
+beautifulsoup4
+pymupdf
