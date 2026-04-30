@@ -444,32 +444,53 @@
             };
 
             const simulateTyping = (fullText, pdfUrl) => {
-                let currentText = "";
-                let i = 0;
+                const startTime = Date.now();
+                const speed = 10; // 10ms per character
                 setIsTyping(true);
 
                 setMessages(prev => [...prev, { role: 'assistant', content: '', isTyping: true }]);
 
-                typingIntervalRef.current = setInterval(() => {
-                    if (i < fullText.length) {
-                        currentText += fullText[i];
+                const tick = () => {
+                    const elapsed = Date.now() - startTime;
+                    const charCount = Math.floor(elapsed / speed);
+                    
+                    if (charCount <= fullText.length) {
+                        const currentText = fullText.slice(0, charCount);
                         setMessages(prev => {
                             const newMessages = [...prev];
-                            newMessages[newMessages.length - 1].content = currentText;
+                            const last = newMessages[newMessages.length - 1];
+                            if (last && last.isTyping) {
+                                last.content = currentText;
+                            }
                             return newMessages;
                         });
-                        i++;
+                        
+                        if (charCount < fullText.length) {
+                            typingIntervalRef.current = requestAnimationFrame(tick);
+                        } else {
+                            finish();
+                        }
                     } else {
-                        clearInterval(typingIntervalRef.current);
-                        setIsTyping(false);
-                        setMessages(prev => {
-                            const newMessages = [...prev];
-                            newMessages[newMessages.length - 1].isTyping = false;
-                            newMessages[newMessages.length - 1].pdfUrl = pdfUrl;
-                            return newMessages;
-                        });
+                        finish();
                     }
-                }, 6);
+                };
+
+                const finish = () => {
+                    cancelAnimationFrame(typingIntervalRef.current);
+                    setIsTyping(false);
+                    setMessages(prev => {
+                        const newMessages = [...prev];
+                        const last = newMessages[newMessages.length - 1];
+                        if (last && last.isTyping) {
+                            last.content = fullText;
+                            last.isTyping = false;
+                            last.pdfUrl = pdfUrl;
+                        }
+                        return newMessages;
+                    });
+                };
+
+                typingIntervalRef.current = requestAnimationFrame(tick);
             };
 
             const send = async (val) => {
