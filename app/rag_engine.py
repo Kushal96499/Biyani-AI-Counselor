@@ -119,8 +119,8 @@ async def _call_llm(messages: list[dict], is_complex: bool = False) -> str | Non
                         content = content[:7000] + "... [Truncated]"
                     payload_msg.append({"role": m["role"], "content": content})
 
-                async with httpx.AsyncClient(timeout=20.0) as client:
-                    r = await client.post(
+                try:
+                    r = await rag_engine._client.post(
                         "https://api.groq.com/openai/v1/chat/completions",
                         json={**payload_base, "messages": payload_msg, "model": model},
                         headers={"Authorization": f"Bearer {GROQ_KEY}"}
@@ -128,6 +128,8 @@ async def _call_llm(messages: list[dict], is_complex: bool = False) -> str | Non
                     if r.status_code == 200:
                         return r.json()["choices"][0]["message"]["content"].strip()
                     logger.warning(f"Groq {model} status: {r.status_code}")
+                except Exception as e:
+                    logger.warning(f"Groq {model} failed: {e}")
             except Exception as e:
                 logger.warning(f"Groq {model} failed: {e}")
 
@@ -140,15 +142,14 @@ async def _call_llm(messages: list[dict], is_complex: bool = False) -> str | Non
         ]
         for model in nvidia_models:
             try:
-                async with httpx.AsyncClient(timeout=25.0) as client:
-                    r = await client.post(
-                        "https://integrate.api.nvidia.com/v1/chat/completions",
-                        json={**payload_base, "model": model},
-                        headers={"Authorization": f"Bearer {NVIDIA_KEY}"}
-                    )
-                    if r.status_code == 200:
-                        return r.json()["choices"][0]["message"]["content"].strip()
-                    logger.warning(f"NVIDIA {model} status: {r.status_code}")
+                r = await rag_engine._client.post(
+                    "https://integrate.api.nvidia.com/v1/chat/completions",
+                    json={**payload_base, "model": model},
+                    headers={"Authorization": f"Bearer {NVIDIA_KEY}"}
+                )
+                if r.status_code == 200:
+                    return r.json()["choices"][0]["message"]["content"].strip()
+                logger.warning(f"NVIDIA {model} status: {r.status_code}")
             except Exception as e:
                 logger.warning(f"NVIDIA {model} failed: {e}")
 
@@ -161,15 +162,14 @@ async def _call_llm(messages: list[dict], is_complex: bool = False) -> str | Non
         ]
         for model in or_models:
             try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    r = await client.post(
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        json={**payload_base, "model": model},
-                        headers={"Authorization": f"Bearer {OR_KEY}"}
-                    )
-                    if r.status_code == 200:
-                        return r.json()["choices"][0]["message"]["content"].strip()
-                    logger.warning(f"OpenRouter {model} status: {r.status_code}")
+                r = await rag_engine._client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    json={**payload_base, "model": model},
+                    headers={"Authorization": f"Bearer {OR_KEY}"}
+                )
+                if r.status_code == 200:
+                    return r.json()["choices"][0]["message"]["content"].strip()
+                logger.warning(f"OpenRouter {model} status: {r.status_code}")
             except Exception as e:
                 logger.warning(f"OpenRouter {model} failed: {e}")
                 continue
@@ -191,18 +191,17 @@ async def _call_llm(messages: list[dict], is_complex: bool = False) -> str | Non
                         contents.append({"role": role, "parts": [{"text": m["content"]}]})
                         last_role = role
 
-                async with httpx.AsyncClient(timeout=20.0) as client:
-                    r = await client.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
-                        json={
-                            "contents": contents,
-                            "system_instruction": {"parts": [{"text": sys_text}]},
-                            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 4000 if is_complex else 2000}
-                        }
-                    )
-                    if r.status_code == 200:
-                        return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    logger.warning(f"Gemini {model} status: {r.status_code}")
+                r = await rag_engine._client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
+                    json={
+                        "contents": contents,
+                        "system_instruction": {"parts": [{"text": sys_text}]},
+                        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 4000 if is_complex else 2000}
+                    }
+                )
+                if r.status_code == 200:
+                    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                logger.warning(f"Gemini {model} status: {r.status_code}")
             except Exception as e:
                 logger.warning(f"Gemini {model} failed: {e}")
 
@@ -217,6 +216,7 @@ _embedding_cache = TTLCache(maxsize=1000, ttl=3600)  # Cache 1k embeddings for 1
 class QdrantRAGEngine:
     def __init__(self):
         self._qdrant: AsyncQdrantClient | None = None
+        self._client: httpx.AsyncClient | None = None
         self.gemini_key = GEMINI_KEY
         
         try:
@@ -225,9 +225,16 @@ class QdrantRAGEngine:
                 api_key=QDRANT_API_KEY,
                 timeout=25
             )
-            logger.info(f"Async Qdrant connected. Collection: {COLLECTION}")
+            self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+            logger.info(f"Async Engine initialized. Qdrant: {COLLECTION}")
         except Exception as e:
-            logger.error(f"Qdrant init failed: {e}")
+            logger.error(f"Engine init failed: {e}")
+
+    async def close(self):
+        if self._client:
+            await self._client.aclose()
+        if self._qdrant:
+            await self._qdrant.close()
 
     def _normalize_query(self, text: str) -> str:
         text = text.lower().strip()
@@ -240,20 +247,19 @@ class QdrantRAGEngine:
             return None
             
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                url = "https://openrouter.ai/api/v1/embeddings"
-                headers = {
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
-                    "input": text
-                }
-                r = await client.post(url, json=payload, headers=headers)
-                if r.status_code == 200:
-                    return r.json()["data"][0]["embedding"]
-                logger.warning(f"NVIDIA API failed ({r.status_code}): {r.text}")
+            url = "https://openrouter.ai/api/v1/embeddings"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+                "input": text
+            }
+            r = await self._client.post(url, json=payload, headers=headers)
+            if r.status_code == 200:
+                return r.json()["data"][0]["embedding"]
+            logger.warning(f"NVIDIA API failed ({r.status_code}): {r.text}")
         except Exception as e:
             logger.warning(f"NVIDIA API exception: {e}")
         return None
@@ -316,8 +322,7 @@ class QdrantRAGEngine:
                 "temperature": 0
             }
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.post(url, json=payload, headers=headers)
+            r = await self._client.post(url, json=payload, headers=headers)
             if r.status_code == 200:
                 indices_text = r.json()["choices"][0]["message"]["content"].strip().upper()
                 if "NONE" not in indices_text:
@@ -572,10 +577,7 @@ class QdrantRAGEngine:
             "5. NO DUPLICATION: Deduplicate entries if they appear multiple times in the context, but keep the most detailed version.\n"
             "6. NO CONTACT INFO IN MAIN TEXT: Do NOT include any phone numbers, email addresses, or physical addresses in the main response body. Replace 'Contact Us' sections with: 'Note: For more information or to apply, please refer to the contact details provided below.'\n"
             "7. MANDATORY CTA TAG: You MUST end your response with the [CTA] tag.\n"
-            "8. DEVELOPER LINKS: If asked about your creator, present the links (GitHub, LinkedIn, Website) as clean Markdown links.\n\n"
-            "REQUIRED FINAL FORMAT:\n"
-            "[CTA]Note: Fees and statistics are subject to change.\n"
-            f"{cta}[/CTA]"
+            "8. DEVELOPER LINKS: If asked about your creator, present the links (GitHub, LinkedIn, Website) as clean Markdown links. and also the mention date of creating"
         )
 
         messages = [{"role": "system", "content": system}]

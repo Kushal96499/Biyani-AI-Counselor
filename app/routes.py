@@ -11,8 +11,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from cachetools import TTLCache
 
-router = APIRouter(redirect_slashes=True)
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=lambda r: f"{get_remote_address(r)}-{r.headers.get('user-agent', '')}")
+
+@router.on_event("shutdown")
+async def shutdown_event():
+    await rag_engine.close()
 
 # Per-session conversation history (keyed by IP)
 # chat_cache intentionally removed — cached answers ignore session context
@@ -93,21 +96,18 @@ async def chat(request: Request, body: ChatRequest):
             raise HTTPException(status_code=400, detail="Empty message")
 
         # Use history from frontend if available (to survive serverless reloads)
+        # Use history from frontend if available
+        session_id = f"{getattr(request.client, 'host', 'unknown')}-{request.headers.get('user-agent', '')}"
+        
         if body.history is not None:
             history_window = [{"role": m.role, "content": m.content} for m in body.history[-6:]]
-            
-            # Still update in-memory for logging/debugging if needed
-            session_id = getattr(request.client, "host", "unknown")
-            if session_id not in chat_history:
-                chat_history[session_id] = []
-            chat_history[session_id].append({"role": "user", "content": user_msg})
         else:
-            # Fallback to in-memory session tracking
-            session_id = getattr(request.client, "host", "unknown")
             if session_id not in chat_history:
                 chat_history[session_id] = []
             history_window = chat_history[session_id][-6:]
-            chat_history[session_id].append({"role": "user", "content": user_msg})
+
+        # Add user message to history for the current processing context
+        current_history = history_window + [{"role": "user", "content": user_msg}]
 
         # Query the RAG engine
         result = await rag_engine.query(user_msg, history=history_window)
@@ -115,8 +115,9 @@ async def chat(request: Request, body: ChatRequest):
         if not result or not result.get("answer"):
             raise Exception("RAG Engine returned empty response")
 
-        # History and Logging
+        # Update persistent history ONLY if frontend didn't provide it
         if body.history is None:
+            chat_history[session_id].append({"role": "user", "content": user_msg})
             chat_history[session_id].append({"role": "assistant", "content": result["answer"]})
             chat_history[session_id] = chat_history[session_id][-10:]
 
