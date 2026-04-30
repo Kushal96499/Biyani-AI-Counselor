@@ -12,7 +12,15 @@ from slowapi.util import get_remote_address
 from cachetools import TTLCache
 
 router = APIRouter(redirect_slashes=True)
-limiter = Limiter(key_func=lambda r: f"{get_remote_address(r)}-{r.headers.get('user-agent', '')}")
+
+def get_session_key(request: Request = None):
+    if request is None:
+        return "unknown"
+    ip = get_remote_address(request)
+    ua = request.headers.get("user-agent", "")
+    return f"{ip}-{ua}"
+
+limiter = Limiter(key_func=get_session_key)
 
 @router.on_event("shutdown")
 async def shutdown_event():

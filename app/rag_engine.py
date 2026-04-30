@@ -97,126 +97,15 @@ def _is_greeting(text: str) -> bool:
     return clean in greetings
 
 
-# ── LLM Caller (Tiered: Groq → Gemini → NVIDIA → OpenRouter) ─────────────────
-async def _call_llm(messages: list[dict], is_complex: bool = False) -> str | None:
-    payload_base = {
-        "messages":         messages,
-        "temperature":      0.0, # Zero temperature = Strict Factual Accuracy
-        "max_tokens":       4000 if is_complex else 2000,
-        "presence_penalty": 0.0, # Removed penalties so it doesn't try to "rephrase" context too much
-        "frequency_penalty": 0.0,
-        "top_p":            0.1,
-    }
-
-    # ── 1. GROQ (Fastest) ──
-    if GROQ_KEY:
-        for model in["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
-            try:
-                payload_msg =[]
-                for m in messages:
-                    content = m["content"]
-                    if len(content) > 7000:
-                        content = content[:7000] + "... [Truncated]"
-                    payload_msg.append({"role": m["role"], "content": content})
-
-                try:
-                    r = await rag_engine._client.post(
-                        "https://api.groq.com/openai/v1/chat/completions",
-                        json={**payload_base, "messages": payload_msg, "model": model},
-                        headers={"Authorization": f"Bearer {GROQ_KEY}"}
-                    )
-                    if r.status_code == 200:
-                        return r.json()["choices"][0]["message"]["content"].strip()
-                    logger.warning(f"Groq {model} status: {r.status_code}")
-                except Exception as e:
-                    logger.warning(f"Groq {model} failed: {e}")
-            except Exception as e:
-                logger.warning(f"Groq {model} failed: {e}")
-
-    # ── 2. NVIDIA (Power Model - Tier 2) ──
-    if NVIDIA_KEY:
-        nvidia_models =[
-            "meta/llama-3.1-70b-instruct",
-            "meta/llama-3.1-8b-instruct",
-            "nvidia/nemotron-3-super-120b-a12b"
-        ]
-        for model in nvidia_models:
-            try:
-                r = await rag_engine._client.post(
-                    "https://integrate.api.nvidia.com/v1/chat/completions",
-                    json={**payload_base, "model": model},
-                    headers={"Authorization": f"Bearer {NVIDIA_KEY}"}
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                logger.warning(f"NVIDIA {model} status: {r.status_code}")
-            except Exception as e:
-                logger.warning(f"NVIDIA {model} failed: {e}")
-
-    # ── 3. OPENROUTER (Free Fallback - Tier 3) ──
-    if OR_KEY:
-        or_models =[
-            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-            "nvidia/nemotron-3-super-120b-a12b:free",
-            "meta-llama/llama-3.1-8b-instruct:free"
-        ]
-        for model in or_models:
-            try:
-                r = await rag_engine._client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    json={**payload_base, "model": model},
-                    headers={"Authorization": f"Bearer {OR_KEY}"}
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                logger.warning(f"OpenRouter {model} status: {r.status_code}")
-            except Exception as e:
-                logger.warning(f"OpenRouter {model} failed: {e}")
-                continue
-
-    # ── 4. GEMINI (Smart Reasoning - Tier 4) ──
-    if GEMINI_KEY:
-        for model in["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
-            try:
-                contents =[]
-                last_role = None
-                chat_msgs = [m for m in messages if m["role"] != "system"]
-                sys_text = next((m["content"] for m in messages if m["role"] == "system"), "")
-
-                for m in chat_msgs:
-                    role = "user" if m["role"] == "user" else "model"
-                    if role == last_role:
-                        contents[-1]["parts"][0]["text"] += "\n" + m["content"]
-                    else:
-                        contents.append({"role": role, "parts": [{"text": m["content"]}]})
-                        last_role = role
-
-                r = await rag_engine._client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
-                    json={
-                        "contents": contents,
-                        "system_instruction": {"parts": [{"text": sys_text}]},
-                        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 4000 if is_complex else 2000}
-                    }
-                )
-                if r.status_code == 200:
-                    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                logger.warning(f"Gemini {model} status: {r.status_code}")
-            except Exception as e:
-                logger.warning(f"Gemini {model} failed: {e}")
-
-    logger.error("All LLM providers failed.")
-    return None
 
 
-# ── RAG Engine ────────────────────────────────────────────────────────────────
-# ── Smart Embedding Cache ──────────────────────────────────────────────────
-_embedding_cache = TTLCache(maxsize=1000, ttl=3600)  # Cache 1k embeddings for 1hr
+# ── RAG Intelligence Engine ───────────────────────────────────────────────────
+_embedding_cache = TTLCache(maxsize=2000, ttl=3600)
 
 class QdrantRAGEngine:
     def __init__(self):
         self._qdrant: AsyncQdrantClient | None = None
-        self._client: httpx.AsyncClient | None = None
+        self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self.gemini_key = GEMINI_KEY
         
         try:
@@ -225,16 +114,89 @@ class QdrantRAGEngine:
                 api_key=QDRANT_API_KEY,
                 timeout=25
             )
-            self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
             logger.info(f"Async Engine initialized. Qdrant: {COLLECTION}")
         except Exception as e:
-            logger.error(f"Engine init failed: {e}")
+            logger.error(f"Qdrant init failed: {e}")
 
     async def close(self):
-        if self._client:
-            await self._client.aclose()
+        await self._client.aclose()
         if self._qdrant:
             await self._qdrant.close()
+
+    async def _call_llm(self, messages: list[dict], is_complex: bool = False) -> str | None:
+        payload_base = {
+            "messages":         messages,
+            "temperature":      0.0,
+            "top_p":            1,
+            "max_tokens":       2000 if is_complex else 1000,
+        }
+
+        # Tier 1: GROQ
+        if GROQ_KEY:
+            for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+                try:
+                    payload_msg = []
+                    for m in messages:
+                        content = m["content"]
+                        if len(content) > 8000: content = content[:7000] + "..."
+                        payload_msg.append({"role": m["role"], "content": content})
+
+                    r = await self._client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        json={**payload_base, "messages": payload_msg, "model": model},
+                        headers={"Authorization": f"Bearer {GROQ_KEY}"}
+                    )
+                    if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
+                except: continue
+
+        # Tier 2: NVIDIA
+        if NVIDIA_KEY:
+            for model in ["nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.1-405b-instruct"]:
+                try:
+                    r = await self._client.post(
+                        "https://integrate.api.nvidia.com/v1/chat/completions",
+                        json={**payload_base, "model": model},
+                        headers={"Authorization": f"Bearer {NVIDIA_KEY}"}
+                    )
+                    if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
+                except: continue
+
+        # Tier 3: OpenRouter
+        if OR_KEY:
+            for model in ["meta-llama/llama-3.1-70b-instruct", "mistralai/mistral-large-2407"]:
+                try:
+                    r = await self._client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        json={**payload_base, "model": model},
+                        headers={"Authorization": f"Bearer {OR_KEY}"}
+                    )
+                    if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
+                except: continue
+
+        # Tier 4: Gemini
+        if GEMINI_KEY:
+            for model in ["gemini-1.5-flash", "gemini-1.5-pro"]:
+                try:
+                    contents = []
+                    sys_text = ""
+                    for m in messages:
+                        if m["role"] == "system": sys_text = m["content"]
+                        else:
+                            role = "user" if m["role"] == "user" else "model"
+                            contents.append({"role": role, "parts": [{"text": m["content"]}]})
+
+                    r = await self._client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
+                        json={
+                            "contents": contents,
+                            "system_instruction": {"parts": [{"text": sys_text}]},
+                            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2000}
+                        }
+                    )
+                    if r.status_code == 200: return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                except: continue
+
+        return None
 
     def _normalize_query(self, text: str) -> str:
         text = text.lower().strip()
@@ -469,7 +431,9 @@ class QdrantRAGEngine:
         elif any(w in low_msg for w in ["scholarship", "scholarships", "yojana", "discount", "concession", "scheme"]):
             search_query += " | Scholarships at Biyani Group of Colleges, Kalpana Chawla, Merit scholarship, Samaj Kalyan Yojana eligibility and amount"
         elif any(w in low_msg for w in ["courses", "course", "subject", "subjects", "detail", "syllabus"]):
-            search_query += " | List of all UG, PG, and Diploma courses, subject details, descriptions, Biyani Group of Colleges"
+            search_query += " | List of all UG, PG, and Diploma courses, fee structure, subject details, descriptions, Biyani Group of Colleges"
+            if "fee" not in low_msg:
+                search_query += " (Fetch names only if possible)"
         elif any(w in low_msg for w in ["college", "address", "contact", "location", "email", "phone", "helpline"]):
             search_query += " | Biyani Group of Colleges list, addresses, contact numbers, email, Biyani Girls College, Bright Moon, Beena Mahavidyalaya"
         
@@ -587,14 +551,17 @@ class QdrantRAGEngine:
             
         # User prompt that encourages dynamic tables rather than forcing a broken hardcoded one
         user_prompt = f"USER QUERY: {user_message}"
-        if "fees" in user_message.lower() or "structure" in user_message.lower() or "list" in user_message.lower():
-            user_prompt += "\n\nSTRICT REQUIREMENT: Present the requested data comprehensively. Do not omit any course or item mentioned in the context. If the data has multiple attributes (like fees), format it as a clean Markdown Table dynamically matching the context's columns."
+        if "fees" in low_msg or "structure" in low_msg or "list" in low_msg:
+            if "fees" not in low_msg and ("course" in low_msg or "list" in low_msg):
+                user_prompt += "\n\nSTRICT REQUIREMENT: Provide a comprehensive list of ALL academic courses mentioned in the context. Output ONLY the names of the courses. Do NOT show any fee amounts. IMPORTANT: EXCLUDE non-academic items like 'Activity fees', 'Stationary fees', 'Bus/Hostel fees', or 'Other charges' from the list of courses."
+            else:
+                user_prompt += "\n\nSTRICT REQUIREMENT: Present the requested data comprehensively. Do not omit any course or item mentioned in the context. If the data has multiple attributes (like fees), format it as a clean Markdown Table dynamically matching the context's columns."
             
         messages.append({"role": "user", "content": user_prompt})
 
         # Call LLM
         t1 = time.time()
-        answer = await _call_llm(messages, is_complex=is_complex)
+        answer = await self._call_llm(messages, is_complex=is_complex)
         logger.info(f"[LLM] Responded in {time.time()-t1:.2f}s")
 
         if not answer:
