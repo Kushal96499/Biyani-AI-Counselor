@@ -389,9 +389,9 @@
                 if (pdfMatch) pdfUrl = pdfMatch[0];
 
                 let html = text
-                    .replace(/\[\s*CTA\s*\]([\s\S]*?)\[\s*\/?\s*CTA\s*\]/gi, '<div class="mt-2 p-3 rounded-xl bg-gray-50 border border-gray-100 relative group"><h4 class="text-[#8b0000] text-[13px] font-bold mb-1">Biyani Group Admission Cell</h4><div class="flex flex-col gap-0.5"><div class="flex items-center gap-2"><span class="text-[10px] opacity-70">📍</span><p class="text-[10px] text-gray-500">Sector-3, Vidhyadhar Nagar, Jaipur (Raj.) 302039</p></div><div class="flex items-center gap-2"><span class="text-[10px] opacity-70">📞</span><p class="text-[11px] text-[#001e61] font-bold">8696218218 / 8290636942</p></div><div class="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-gray-200/50"><a href="https://wa.me/918290636942" target="_blank" class="flex items-center gap-1 bg-[#25D366] text-white px-2 py-0.5 rounded-md text-[9px] font-bold transition-transform active:scale-95 shadow-sm"><span>💬</span> WhatsApp</a><a href="mailto:admissions@biyanicolleges.org" class="flex items-center gap-1 bg-[#001e61] text-white px-2 py-0.5 rounded-md text-[9px] font-bold transition-transform active:scale-95 shadow-sm"><span>✉️</span> Email</a></div></div></div>')
-                    .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="text-[#8b0000] font-bold underline hover:text-[#001e61] transition-colors">$1</a>')
-                    .replace(/(?<!["'])(https?:\/\/[^\s<]+)/gi, '<a href="$1" target="_blank" class="text-[#8b0000] font-bold underline hover:text-[#001e61] transition-colors">$1</a>');
+                    .replace(/\[\s*CTA\s*\]([\s\S]*?)\[\s*\/?\s*CTA\s*\]/gi, '<div style="margin: 24px 0; padding: 24px; background: linear-gradient(to bottom right, #ffffff, #f8faff); border: 1px solid #e2e8f0; border-left: 6px solid #8b0000; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.04); box-sizing: border-box; width: 100%; display: block;"><h4 style="color: #8b0000; font-size: 17px; font-weight: 800; margin: 0 0 16px 0; padding: 0; line-height: 1.2; font-family: inherit;">Biyani Group Admission Cell</h4><div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px;"><div style="display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 0;"><span style="font-size: 18px; line-height: 1; margin-top: 2px;">📍</span><p style="margin: 0; padding: 0; font-size: 14.5px; color: #4a5568; line-height: 1.4; font-family: inherit;">Sector-3, Vidhyadhar Nagar, Jaipur (Raj.) 302039</p></div><div style="display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 0;"><span style="font-size: 18px; line-height: 1; margin-top: 2px;">📞</span><p style="margin: 0; padding: 0; font-size: 14.5px; color: #001e61; font-weight: 700; line-height: 1.4; font-family: inherit;">8696218218 <span style="color: #cbd5e0; font-weight: 400; margin: 0 6px;">/</span> 8290636942</p></div></div><div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; padding: 0;"><a href="https://wa.me/918290636942" target="_blank" class="hover:opacity-80 transition-opacity" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background-color: #25D366; color: white; padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600; white-space: nowrap; border: none; line-height: 1; box-sizing: border-box; box-shadow: 0 2px 6px rgba(37, 211, 102, 0.25);"><span style="font-size: 16px; margin-bottom: 2px;">💬</span> WhatsApp</a><a href="mailto:admissions@biyanicolleges.org" target="_blank" class="hover:opacity-80 transition-opacity" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background-color: #001e61; color: white; padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600; white-space: nowrap; border: none; line-height: 1; box-sizing: border-box; box-shadow: 0 2px 6px rgba(0, 30, 97, 0.25);"><span style="font-size: 16px; margin-bottom: 2px;">✉️</span> Email</a></div></div>')
+                    .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" style="text-decoration:none;" class="text-[#8b0000] font-bold hover:text-[#001e61] border-b border-[#8b0000]/30 hover:border-[#001e61] transition-all pb-0.5">$1</a>')
+                    .replace(/(?<!["'])(https?:\/\/[^\s<]+)/gi, '<a href="$1" target="_blank" style="text-decoration:none;" class="text-[#8b0000] font-bold hover:text-[#001e61] border-b border-[#8b0000]/30 hover:border-[#001e61] transition-all pb-0.5">$1</a>');
 
                 // Basic Table Parser
                 if (html.includes('|') && html.includes('---')) {
@@ -453,7 +453,7 @@
                 const tick = () => {
                     const elapsed = Date.now() - startTime;
                     const charCount = Math.floor(elapsed / speed);
-                    
+
                     if (charCount <= fullText.length) {
                         const currentText = fullText.slice(0, charCount);
                         setMessages(prev => {
@@ -464,7 +464,7 @@
                             }
                             return newMessages;
                         });
-                        
+
                         if (charCount < fullText.length) {
                             typingIntervalRef.current = requestAnimationFrame(tick);
                         } else {
