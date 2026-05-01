@@ -154,20 +154,24 @@ class QdrantRAGEngine:
         # Tier 1: GROQ (Fastest for Chat)
         if GROQ_KEY:
             for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
-                try:
-                    payload_msg = []
-                    for m in messages:
-                        content = m["content"]
-                        if len(content) > 8000: content = content[:7000] + "..."
-                        payload_msg.append({"role": m["role"], "content": content})
+                for attempt in range(2): # Point 6: Lightweight retry
+                    try:
+                        payload_msg = []
+                        for m in messages:
+                            content = m["content"]
+                            if len(content) > 8000: content = content[:7000] + "..."
+                            payload_msg.append({"role": m["role"], "content": content})
 
-                    r = await self._client.post(
-                        "https://api.groq.com/openai/v1/chat/completions",
-                        json={**payload_base, "messages": payload_msg, "model": model},
-                        headers={"Authorization": f"Bearer {GROQ_KEY}"}
-                    )
-                    if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
-                except: continue
+                        r = await self._client.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            json={**payload_base, "messages": payload_msg, "model": model},
+                            headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                            timeout=8.0 # Stricter timeout for failover
+                        )
+                        if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
+                    except: 
+                        await asyncio.sleep(0.5)
+                        continue
 
         # Tier 2: NVIDIA (Working fallback)
         if NVIDIA_KEY:
@@ -235,78 +239,116 @@ class QdrantRAGEngine:
         vec = await self._get_nvidia_vector(query)
         return vec
 
-    async def _retrieve(self, query: str) -> list[dict]:
-        if not self._qdrant:
-            logger.error("Qdrant not initialized.")
-            return[]
-
-        vec = await self._get_vector(query)
-        if not vec:
-            logger.error("Embedding failed — skipping retrieval.")
-            return[]
+    async def _retrieve(self, query: str, vector: list = None) -> list[dict]:
+        if not self._qdrant: return []
+        
+        # Use provided vector or compute new one only if missing
+        vec = vector if vector else await self._get_vector(query)
+        if not vec: return []
 
         try:
-            TARGET_COLLECTION = COLLECTION
-            
+            # Optimized Retrieval Limits (ChatGPT Recommendation)
+            limit = 10 
+            threshold = 0.35
+
             response = await self._qdrant.query_points(
-                collection_name=TARGET_COLLECTION,
+                collection_name=COLLECTION,
                 query=vec,
-                limit=RETRIEVAL_LIMIT,
-                score_threshold=SCORE_THRESHOLD,
+                limit=limit,
+                score_threshold=threshold,
                 with_payload=True
             )
             hits = response.points
             
             if hits:
-                return await self._rerank(query, hits)
-            return[]
+                # Conditional Reranking Logic (Optimization)
+                keywords = ["fee", "admission", "course", "placement", "hostel", "scholarship", "eligibility"]
+                is_complex = len(query.split()) > 7 or any(k in query.lower() for k in keywords)
+                
+                if is_complex:
+                    return await self._rerank(query, hits[:6]) # Rerank only top 6
+                else:
+                    return [h.payload for h in hits[:3]] # Instant return for simple queries
+            return []
         except Exception as e:
             logger.error(f"Retrieval failed: {e}")
             return[]
 
     async def _rerank(self, query: str, hits: list) -> list[dict]:
+        """Advanced NVIDIA Reranker using custom semantic scoring prompt."""
         token = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not token or not hits:
-            return[h.payload for h in hits[:8]]
+            return [h.payload for h in hits[:8]]
+
+        async def get_score(chunk: str) -> float:
+            try:
+                url = "https://openrouter.ai/api/v1/chat/completions"
+                headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                
+                # Using the exact advanced prompt provided by the user
+                prompt = f"""You are a highly accurate semantic relevance ranking system.
+Your task is to evaluate how relevant each retrieved context chunk is to the given user query.
+
+INSTRUCTIONS:
+* Carefully read the user query and the context chunk.
+* Focus on semantic meaning, not just keyword matching.
+* Prioritize chunks that:
+  * Directly answer the question
+  * Contain specific details (fees, eligibility, course info, etc.)
+  * Are clearly related to the user's intent
+* Penalize chunks that:
+  * Contain generic or unrelated information
+  * Include navigation text, menus, or repeated website content
+  * Are vague or lack useful details
+
+SCORING RULES:
+* Assign a relevance score from 0 to 1
+  * 1.0 = Perfect match (direct answer)
+  * 0.7–0.9 = Highly relevant
+  * 0.4–0.6 = Partially relevant
+  * 0.0–0.3 = Irrelevant
+
+OUTPUT FORMAT:
+Return ONLY the score. Do NOT explain.
+
+USER QUERY:
+{query}
+
+CONTEXT:
+{chunk}"""
+                
+                payload = {
+                    "model": "nvidia/rerank-qa-mistral-4b",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 5,
+                    "temperature": 0
+                }
+                
+                r = await self._client.post(url, json=payload, headers=headers)
+                if r.status_code == 200:
+                    score_text = r.json()["choices"][0]["message"]["content"].strip()
+                    match = re.findall(r'\d+\.?\d*', score_text)
+                    return float(match[0]) if match else 0.0
+            except:
+                return 0.2
+            return 0.0
 
         try:
-            url = "https://openrouter.ai/api/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            # Parallel scoring with NVIDIA model
+            tasks = [get_score(h.payload.get('text', '')) for h in hits[:10]]
+            scores = await asyncio.gather(*tasks)
             
-            context_text = "\n".join([f"[{i}] {h.payload.get('text', '')[:500]}" for i, h in enumerate(hits)])
-            prompt = f"User Question: {query}\n\nSearch Results:\n{context_text}\n\nTask: Rank the results by relevance. Output ONLY the index[0-9] of the absolute best match. If no result is relevant, output 'NONE'."
+            scored_hits = []
+            for i, score in enumerate(scores):
+                if score >= 0.4:
+                    scored_hits.append((score, hits[i].payload))
             
-            payload = {
-                "model": "nvidia/rerank-qa-mistral-4b",
-                "messages": [{"role": "user", "content": f"Question: {query}\n\nDocuments:\n{context_text}\n\nTask: Identify the indices of ALL documents that are relevant to the question. Output ONLY a comma-separated list of indices (e.g., '0, 2, 5'). If none are relevant, output 'NONE'."}],
-                "max_tokens": 20,
-                "temperature": 0
-            }
+            scored_hits.sort(key=lambda x: x[0], reverse=True)
+            return [item[1] for item in scored_hits[:6]] if scored_hits else [h.payload for h in hits[:5]]
             
-            r = await self._client.post(url, json=payload, headers=headers)
-            if r.status_code == 200:
-                indices_text = r.json()["choices"][0]["message"]["content"].strip().upper()
-                if "NONE" not in indices_text:
-                    relevant_indices = [int(s.strip()) for s in re.findall(r'\d+', indices_text)]
-                    ranked_hits = []
-                    seen_hits = set()
-                    
-                    # Add relevant hits first
-                    for idx in relevant_indices:
-                        if idx < len(hits):
-                            ranked_hits.append(hits[idx].payload)
-                            seen_hits.add(idx)
-                    
-                    # Add the rest
-                    for i, h in enumerate(hits):
-                        if i not in seen_hits:
-                            ranked_hits.append(h.payload)
-                    
-                    return ranked_hits[:12]
         except Exception as e:
-            logger.warning(f"Reranking skipped: {e}")
-            
-        return[h.payload for h in hits[:12]]
+            logger.error(f"NVIDIA Scoring Rerank failed: {e}")
+            return [h.payload for h in hits[:8]]
 
 
     # ── Admin Panel Integrations ──────────────────────────────────────────────
@@ -485,22 +527,40 @@ class QdrantRAGEngine:
         logger.info(f"[Query] '{user_message}' (Search: '{search_query}') | Lang: {lang}")
         t0 = time.time()
         
-        # Increased retrieval depth to ensure latest data is captured
-        RETRIEVAL_LIMIT_S = 25 
-        vec = await self._get_vector(search_query)
-        if not vec:
+        # --- RETRIEVAL OPTIMIZATION (Point 2) ---
+        RETRIEVAL_LIMIT_S = 10 
+        SCORE_THRESHOLD_S = 0.35 
+        
+        # Reuse existing query_vec (Point 1)
+        if not query_vec:
             chunks = []
         else:
             try:
-                response = await self._qdrant.query_points(
-                    collection_name=COLLECTION,
-                    query=vec,
-                    limit=RETRIEVAL_LIMIT_S,
-                    score_threshold=0.12, 
-                    with_payload=True
+                # Add strict timeout (Point 6)
+                response = await asyncio.wait_for(
+                    self._qdrant.query_points(
+                        collection_name=COLLECTION,
+                        query=query_vec,
+                        limit=RETRIEVAL_LIMIT_S,
+                        score_threshold=SCORE_THRESHOLD_S, 
+                        with_payload=True
+                    ),
+                    timeout=5.0
                 )
-                chunks = await self._rerank(search_query, response.points)
-            except:
+                
+                # --- CONDITIONAL RERANKING (Point 3) ---
+                # Only rerank if query is complex or long
+                keywords = ["fee", "admission", "course", "placement", "hostel", "scholarship", "eligibility"]
+                is_complex_query = len(search_query.split()) > 7 or any(k in search_query.lower() for k in keywords)
+                
+                if is_complex_query and response.points:
+                    # Limit reranker input to max 6 chunks
+                    chunks = await self._rerank(search_query, response.points[:6])
+                else:
+                    # Skip reranker for simple queries (Instant fallback)
+                    chunks = [p.payload for p in response.points[:4]]
+            except Exception as e:
+                logger.warning(f"Retrieval/Rerank failed: {e}")
                 chunks = []
         
         logger.info(f"[Retrieval] {len(chunks)} chunks in {time.time()-t0:.2f}s")
@@ -535,10 +595,10 @@ class QdrantRAGEngine:
         if not filtered_chunks and chunks:
             filtered_chunks = chunks[:5]
             
-        # Select top 4 highly relevant chunks
-        final_chunks = filtered_chunks[:4]
+        # Select top 3 highly relevant chunks (Point 4)
+        final_chunks = filtered_chunks[:3]
         
-        # Structured Context Format: [Section N]
+        # Structured Context Format
         context_parts = []
         for i, c in enumerate(final_chunks):
             content = c.get("text", "").strip()

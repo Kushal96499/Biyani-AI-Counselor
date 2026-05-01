@@ -97,7 +97,9 @@ class RedisCacheManager:
             logger.error(f"Failed to clear Redis Cache: {e}")
 
     async def set_cache(self, query: str, answer: str, embedding: list, pdf_url: str = None):
-        if not self.is_active or not answer or "sorry" in answer.lower():
+        # Point 5: Only cache high-quality, long answers
+        if not self.is_active or not answer: return
+        if len(answer) < 100 or "sorry" in answer.lower() or "difficulty" in answer.lower():
             return
 
         normalized = self._normalize_query(query)

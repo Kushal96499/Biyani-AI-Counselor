@@ -33,7 +33,8 @@ app.add_middleware(
 app.include_router(router, prefix="/api")
 
 # 2. Serve Static Assets
-frontend_path = os.path.join(os.getcwd(), "frontend")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+frontend_path = os.path.join(BASE_DIR, "frontend")
 assets_path = os.path.join(frontend_path, "assets")
 if os.path.exists(assets_path):
     app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
