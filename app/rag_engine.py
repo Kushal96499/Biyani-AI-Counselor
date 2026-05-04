@@ -131,6 +131,7 @@ def _get_rule_boost(query: str) -> str:
     if "course" in ql or "subject" in ql or "degree" in ql: matches.append(RULE_BASED_KNOWLEDGE["courses"])
     if any(w in ql for w in ["campus", "campuses", "location", "vaidehi", "maitreyi", "dhanvantari", "kalwar"]):
         matches.append(RULE_BASED_KNOWLEDGE["campus"])
+    # NOTE: Placement is intentionally NOT rule-boosted — let Qdrant context answer directly
     return "\n".join(matches) if matches else ""
 
 
@@ -163,33 +164,49 @@ class QdrantRAGEngine:
             "messages":         messages,
             "temperature":      0.0,
             "top_p":            1,
-            "max_tokens":       2000 if is_complex else 1000,
+            "max_tokens":       2000 if is_complex else 1200,
         }
 
         # Tier 1: GROQ (Primary - Fastest & Smartest)
+        # NOTE: Groq free-tier daily limits are PER MODEL, not account-wide.
+        # So when llama-3.3-70b hits daily limit, we CONTINUE to llama-3.1-8b-instant, etc.
         if GROQ_KEY:
-            for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3-32b"]:
+            groq_daily_failures = 0
+            groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3-32b"]
+            for model in groq_models:
                 try:
                     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
                     payload = {**payload_base, "messages": messages, "model": model}
                     r = await self._client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=8.0)
                     if r.status_code == 200:
+                        logger.info(f"Groq [{model}] responded OK")
                         return r.json()["choices"][0]["message"]["content"].strip()
                     elif r.status_code == 429:
                         err_msg = r.text.lower()
                         if "tpd" in err_msg or "daily" in err_msg:
-                            logger.warning(f"Groq Daily Limit Reached. Switching provider...")
-                            break # Daily limit is account-wide, switch tier
+                            groq_daily_failures += 1
+                            logger.warning(f"Groq [{model}] daily limit hit ({groq_daily_failures}/{len(groq_models)}). Trying next model...")
+                            continue  # Try next Groq model — per-model daily limits
                         else:
-                            logger.warning(f"Groq Minute Limit. Trying next model...")
-                            continue # Minute limit might be model-specific
+                            logger.warning(f"Groq [{model}] minute-rate limit. Trying next model...")
+                            continue
+                    else:
+                        logger.warning(f"Groq [{model}] returned {r.status_code}. Trying next model...")
+                        continue
                 except Exception as e:
-                    logger.debug(f"Groq {model} failed: {e}")
+                    logger.debug(f"Groq [{model}] exception: {e}")
                     continue
+            logger.warning("All Groq models exhausted. Moving to NVIDIA NIM...")
 
-        # Tier 2: NVIDIA Chat NIM (Secondary - High Speed)
+        # Tier 2: NVIDIA Chat NIM (Secondary)
+        # mistral-large-3-675b confirmed valid from official NVIDIA docs.
+        # Root cause of previous failures was 7s timeout (now 15s), not model names.
         if NVIDIA_KEY:
-            for model in ["upstage/solar-10.7b-instruct", "mistralai/mistral-large-3-675b-instruct-2512"]:
+            nvidia_models = [
+                "mistralai/mistral-large-3-675b-instruct-2512",
+                "meta/llama-3.3-70b-instruct",
+            ]
+            for model in nvidia_models:
                 try:
                     url = "https://integrate.api.nvidia.com/v1/chat/completions"
                     headers = {"Authorization": f"Bearer {NVIDIA_KEY}", "Content-Type": "application/json"}
@@ -200,17 +217,21 @@ class QdrantRAGEngine:
                         sys_content = messages[0]["content"]
                         first_user_content = next((m["content"] for m in messages if m["role"] == "user"), "")
                         combined_messages.append({"role": "user", "content": f"INSTRUCTIONS: {sys_content}\n\nUSER QUERY: {first_user_content}"})
-                        # Add rest of the history
                         combined_messages.extend([m for m in messages if m != messages[0] and m["content"] != first_user_content])
                     else:
                         combined_messages = messages
 
                     payload = {"messages": combined_messages, "model": model, "max_tokens": 1024}
-                    r = await self._client.post(url, json=payload, headers=headers, timeout=7.0)
+                    r = await self._client.post(url, json=payload, headers=headers, timeout=15.0)
                     if r.status_code == 200:
+                        logger.info(f"NVIDIA NIM [{model}] responded OK")
                         return r.json()["choices"][0]["message"]["content"].strip()
+                    else:
+                        logger.warning(f"NVIDIA NIM [{model}] returned {r.status_code}: {r.text[:100]}")
                 except Exception as e:
-                    logger.warning(f"NVIDIA NIM {model} failed: {e}")
+                    logger.warning(f"NVIDIA NIM [{model}] exception: {e}")
+                    continue
+            logger.warning("All NVIDIA NIM models exhausted. Moving to OpenRouter...")
 
         # Tier 3: OpenRouter (Fallback - Emergency)
         if OR_KEY:
@@ -705,8 +726,8 @@ class QdrantRAGEngine:
         if not filtered_chunks and chunks:
             filtered_chunks = chunks[:5]
             
-        # Select top 3 highly relevant chunks (Point 4)
-        final_chunks = filtered_chunks[:3]
+        # Select top 5 most relevant chunks for richer context
+        final_chunks = filtered_chunks[:5]
         
         # Structured Context Format with Source Attribution
         context_parts = []
@@ -716,6 +737,12 @@ class QdrantRAGEngine:
             context_parts.append(f"[Section {i+1} | Source: {source}]\n{content}")
             
         context = clean_text("\n\n".join(context_parts))
+        
+        # Cap context size to prevent payload overflow (413 on Groq, timeout on NVIDIA)
+        # 5 chunks retrieved for quality, but we only send what fits
+        MAX_CONTEXT_CHARS = 6500
+        if len(context) > MAX_CONTEXT_CHARS:
+            context = context[:MAX_CONTEXT_CHARS] + "\n...[context truncated for token limit]"
         
         # Rule-based boost injection
         rule_boost = _get_rule_boost(user_message)
@@ -727,9 +754,12 @@ class QdrantRAGEngine:
             "fees", "fee", "admission", "admissions", "eligibility", "scholarship", "scholarships", 
             "process", "placement", "placements", "hostel", "structure", "structures", 
             "course", "courses", "syllabus", "list", "lists", "all", "prospectus", "brochure",
-            "subject", "subjects", "detail", "details", "description", "departments"
+            "subject", "subjects", "detail", "details", "description", "departments",
+            "stats", "statistic", "statistics", "company", "companies", "package", "packages",
+            "record", "facility", "facilities", "infrastructure", "award", "awards",
+            "affiliation", "accreditation", "naac", "aicte", "ugc", "collaboration"
         }
-        is_complex = bool(set(user_message.lower().split()) & complex_keywords) or len(user_message.split()) > 10
+        is_complex = bool(set(user_message.lower().split()) & complex_keywords) or len(user_message.split()) > 8
 
         cta = (
             "**Biyani Group of Colleges Admission Cell**\n"
@@ -747,14 +777,24 @@ class QdrantRAGEngine:
             f"{context}\n\n"
             "PERSONA: You are 'Biyani AI Counselor', a dedicated institutional assistant for Biyani Group of Colleges. Your tone is professional, warm, and student-centric.\n\n"
             "DIRECTIVES:\n"
-            "1. CONVERSATIONAL WRAP: NEVER start with just a table. Begin with a helpful sentence as a counselor. End with a supportive closing note or a call-to-action.\n"
+            "1. CONVERSATIONAL WRAP: NEVER start with just a table. Begin with a warm, helpful sentence as a counselor. End with a supportive closing note.\n"
             "2. LANGUAGE MATCH: Use the user's style (Hinglish/English) naturally.\n"
-            "3. INSTITUTIONAL FOCUS: Only provide information about Biyani Group of Colleges. IGNORE any technical, programming, or coding examples (like JavaScript events) that might appear in the context. Focus on campus life, festivals (Biyani Mela, Spectrum), academic seminars, and workshops.\n"
-            "4. UNIVERSAL TABLE RULES: Render tabular data as a GFM Table. PRESERVE ALL COLUMNS. START with 'S.No.' column (Centered with dots). IMPORTANT: Tables MUST be wrapped in your conversational response.\n"
-            "5. CONTACT POLICY: Show 'Biyani Shikshan / Samiti@grayquest.com' ONLY for EMI/Installment queries. Otherwise, stick to the general [CTA].\n"
-            "6. COMPREHENSIVENESS: Provide the FULL, detailed information from the context. NEVER skip, shorten, or summarize lists, tables, or itemized details. If the context has 50 items, show all 50.\n"
-            "7. GROUNDING: Use ONLY context info. No hallucinations. Maintain institutional pride.\n"
-            "8. NIA ASSISTANT: 'Niaa' is a separate Biyani Virtual Assistant. If asked about Niaa, provide information based on the context. Do NOT claim to be Niaa yourself.\n"
+            "3. INSTITUTIONAL FOCUS: Only provide information about Biyani Group of Colleges. IGNORE any technical or coding examples in context.\n"
+            "4. SMART TABLE RULES: ONLY use a GFM markdown table when the data is genuinely multi-column and comparative (e.g., fee structures with 3+ attributes, course lists with affiliation/approval columns). "
+            "For simple single-column lists (company names, event names, subject names), use bullet points (•) instead. "
+            "NEVER create a table just because data appears as a list. If unsure, use bullets.\n"
+            "5. CONTACT POLICY: Show 'Biyani Shikshan / Samiti@grayquest.com' ONLY for EMI/Installment queries. Otherwise use the [CTA].\n"
+            "6. COMPREHENSIVENESS: Present EVERY detail available in the context. "
+            "If context lists 10 companies, list all 10. If context has stats, show all stats. "
+            "NEVER cut short, summarize, or say 'and more' when actual data is available. "
+            "Give the student the complete picture — they deserve full information.\n"
+            "7. DATA GROUNDING — NO HALLUCINATION:\n"
+            "   - Answer using ONLY what is in the CONTEXT above. Present all details from context fully.\n"
+            "   - If the context has placement data, company names, or statistics — present them completely.\n"
+            "   - NEVER invent specific numbers (percentages, LPA packages, student counts) that are NOT in context.\n"
+            "   - NEVER add foreign university names (Oxford, Cambridge, etc.) or global company names (IBM, Wipro) unless they are explicitly in the retrieved context.\n"
+            "   - If context is genuinely empty for a topic, say so briefly and direct to the contact number.\n"
+            "8. NIA ASSISTANT: 'Niaa' is a separate Biyani Virtual Assistant. Do NOT claim to be Niaa.\n"
             "9. CTA: Conclude EVERY response with the [CTA] tag after your closing note.\n"
         )
 
