@@ -1,39 +1,54 @@
-# Python
+# ============================================================
+# BIYANI AI COUNSELOR - .gitignore (Production Safe)
+# ============================================================
+
+# --- SECRETS (NEVER COMMIT) ---
+.env
+.env.local
+.env.production
+*.key
+*.pem
+
+# --- Python ---
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
+dist/
+build/
 .Python
-env/
-venv/
 pip-log.txt
 pip-delete-this-directory.txt
-.venv/
-.env
 
-# Diagnostic Scripts & Scrap (Faltu Files)
-probe_*.py
-discover_models.py
-test_models.py
-deep_db_check.py
-debug_*.py
-test_chat.py
-test_production.py
-reindex.py
-find_qdrant.py
-test_cases.txt
-urls.txt
+# --- Virtual Environments ---
+venv/
+env/
+.venv/
+ENV/
+
+# --- Logs (Generated at runtime, not source) ---
 logs/
-scratch/
+*.log
+
+# --- Local Data & Dumps (Large files, indexed to cloud) ---
 data/
 models/
 
-# IDEs
+# --- Scratch / Dev Scripts (Not production code) ---
+scratch/
+
+# --- Reports & Docs (Local only) ---
+Biyani_AI_Master_Report_v2.txt
+Biyani_AI_Project_Update.md
+
+# --- IDEs ---
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# --- OS ---
 .DS_Store
 Thumbs.db
+desktop.ini

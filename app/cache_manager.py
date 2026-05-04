@@ -20,10 +20,12 @@ class RedisCacheManager:
         self.token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip('"')
         self.version = "v1"
         self.client = httpx.AsyncClient(timeout=5.0)
-        self.is_active = bool(self.url and self.token)
+        from app.config import settings
+        self.is_active = bool(self.url and self.token and settings.CACHE_ENABLED)
         
         if not self.is_active:
-            logger.warning("Redis Cache is INACTIVE: Missing URL or Token in .env")
+            reason = "Missing credentials" if not (self.url and self.token) else "Disabled via settings"
+            logger.warning(f"Redis Cache is INACTIVE: {reason}")
 
     def _normalize_query(self, query: str) -> str:
         """Standardizes query for exact matching."""
@@ -132,7 +134,7 @@ class RedisCacheManager:
         await self._redis_cmd(["LPUSH", self._get_semantic_key_list(), json.dumps(semantic_entry)])
         await self._redis_cmd(["LTRIM", self._get_semantic_key_list(), "0", "99"]) # Keep only 100
 
-    async def log_chat_to_redis(self, question: str, answer: str, ip: str):
+    async def log_chat_to_redis(self, question: str, answer: str, ip: str, response_time: float = 0.0):
         """Saves a chat log entry to a capped list in Redis and increments counters."""
         if not self.is_active: return
         try:
@@ -148,12 +150,16 @@ class RedisCacheManager:
             log_entry = f"{time.strftime('%Y-%m-%d %H:%M:%S')} | IP: {ip} | Q: {question[:50]}..."
             await self._redis_cmd(["LPUSH", "stats:chat_logs", log_entry])
             await self._redis_cmd(["LTRIM", "stats:chat_logs", "0", "99"]) # Keep only top 100
+
+            # 4. Track cumulative response time for average calculation
+            if response_time > 0:
+                await self._redis_cmd(["INCRBYFLOAT", "stats:total_response_time", str(round(response_time, 4))])
         except Exception as e:
             logger.error(f"Redis Logging failed: {e}")
 
     async def get_redis_stats(self):
         """Retrieves persistent stats from Redis."""
-        if not self.is_active: return {"total_questions": 0, "unique_sessions": 0, "redis_logs": []}
+        if not self.is_active: return {"total_questions": 0, "unique_sessions": 0, "redis_logs": [], "avg_response_time": 0.0}
         try:
             # Get total questions
             total = await self._redis_cmd(["GET", "stats:total_questions"])
@@ -163,15 +169,21 @@ class RedisCacheManager:
             
             # Get last 100 logs
             logs = await self._redis_cmd(["LRANGE", "stats:chat_logs", "0", "99"])
+
+            # Compute average response time from cumulative total
+            total_rt = await self._redis_cmd(["GET", "stats:total_response_time"])
+            total_count = int(total) if total else 0
+            avg_rt = round(float(total_rt) / total_count, 3) if total_count > 0 and total_rt else 0.0
             
             return {
-                "total_questions": int(total) if total else 0,
+                "total_questions": total_count,
                 "unique_sessions": int(sessions) if sessions else 0,
-                "redis_logs": logs if logs else []
+                "redis_logs": logs if logs else [],
+                "avg_response_time": avg_rt
             }
         except Exception as e:
             logger.error(f"Failed to fetch Redis stats: {e}")
-            return {"total_questions": 0, "unique_sessions": 0, "redis_logs": []}
+            return {"total_questions": 0, "unique_sessions": 0, "redis_logs": [], "avg_response_time": 0.0}
 
     async def close(self):
         await self.client.aclose()

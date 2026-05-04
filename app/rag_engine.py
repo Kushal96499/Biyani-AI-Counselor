@@ -5,7 +5,7 @@ Embedding Strategy:
   - Vercel/Production: HuggingFace Inference API (no download, instant)
   - Local Fallback:    FastEmbed (local ONNX model)
 Vector DB: Qdrant Cloud
-LLM Stack: Groq → Gemini → NVIDIA → OpenRouter
+LLM Stack: Groq → NVIDIA → OpenRouter
 """
 
 import os
@@ -32,7 +32,6 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "biyani_clean_v2")
 COLLECTION        = QDRANT_COLLECTION
 
 GROQ_KEY   = os.getenv("GROQ_API_KEY", "")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 NVIDIA_KEY = os.getenv("NVIDIA_API_KEY", "")
 OR_KEY     = os.getenv("OPENROUTER_API_KEY", "")
 
@@ -105,7 +104,22 @@ RULE_BASED_KNOWLEDGE = {
     "fees": "Biyani Group of Colleges offers competitive fee structures for various courses like BCA, BBA, MBA, MCA, B.Com, and more. Fees vary by course and college (Biyani Girls College, Biyani Institute of Science & Management, etc.). Scholarships are available based on merit and category. For exact current year fees, students should refer to the Admission Cell.",
     "admission": "Admission at Biyani Group of Colleges is based on both merit and entrance exams (for specific courses like MBA/MCA). The process involves filling an online/offline application form, document verification, and a personal interview in some cases. Direct admission is available for many UG courses.",
     "contact": "You can contact the Biyani Admission Cell at 8696218218 or 0141-2338591. Location: Sector-3, Vidhyadhar Nagar, Jaipur, Rajasthan 302039. Email: admissions@biyanicolleges.org",
-    "courses": "Biyani Group offers courses in IT (BCA, MCA, MSc IT), Management (BBA, MBA), Commerce (B.Com, M.Com), Science (B.Sc, M.Sc), Arts (BA, MA), and Law. We have specialized colleges for Girls and Co-ed institutions as well."
+    "courses": "Biyani Group offers courses in IT (BCA, MCA, MSc IT), Management (BBA, MBA), Commerce (B.Com, M.Com), Science (B.Sc, M.Sc), Arts (BA, MA), and Law. We have specialized colleges for Girls and Co-ed institutions as well.",
+    "campus": (
+        "Biyani Group of Colleges has THREE campuses in Jaipur, Rajasthan:\n\n"
+        "1. MAIN CAMPUS — Vaidehi 'वैदेही' (Campus No. 1)\n"
+        "   Sector-3, Vidhyadhar Nagar, Jaipur (Raj.) 302039\n"
+        "   Phone: +91-8696218218, +91-8290636942\n"
+        "   Email: director@biyanicolleges.org | admissions@biyanicolleges.org\n\n"
+        "2. Maitreyi 'मैत्रेयी' Campus\n"
+        "   Behind Bhaitariya Bhairoo Temple, Kalwar-Jobner Road, Kalwar, Jaipur (Raj.) 303706\n"
+        "   Tel: +91-141-2589951-52, +91-8696218218\n\n"
+        "3. Dhanvantari 'धन्वन्तरि' Campus\n"
+        "   Champapura, Kalwar Road, Jaipur (Raj.) 303706\n"
+        "   Tel: +91-141-2860175, +91-7568650965\n\n"
+        "Overseas Office: Biyani Bio Seeds, 1-1 Asahi-dai, Nomi, Ishikawa 923-1292 Japan\n"
+        "Email: biyani@jaist.ac.jp | Phone: +81-761-51-1591"
+    )
 }
 
 def _get_rule_boost(query: str) -> str:
@@ -115,6 +129,8 @@ def _get_rule_boost(query: str) -> str:
     if "admission" in ql or "apply" in ql or "process" in ql: matches.append(RULE_BASED_KNOWLEDGE["admission"])
     if "contact" in ql or "call" in ql or "number" in ql or "address" in ql: matches.append(RULE_BASED_KNOWLEDGE["contact"])
     if "course" in ql or "subject" in ql or "degree" in ql: matches.append(RULE_BASED_KNOWLEDGE["courses"])
+    if any(w in ql for w in ["campus", "campuses", "location", "vaidehi", "maitreyi", "dhanvantari", "kalwar"]):
+        matches.append(RULE_BASED_KNOWLEDGE["campus"])
     return "\n".join(matches) if matches else ""
 
 
@@ -125,7 +141,6 @@ class QdrantRAGEngine:
     def __init__(self):
         self._qdrant: AsyncQdrantClient | None = None
         self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
-        self.gemini_key = GEMINI_KEY
         
         try:
             self._qdrant = AsyncQdrantClient(
@@ -151,52 +166,66 @@ class QdrantRAGEngine:
             "max_tokens":       2000 if is_complex else 1000,
         }
 
-        # Tier 1: GROQ (Fastest for Chat)
+        # Tier 1: GROQ (Primary - Fastest & Smartest)
         if GROQ_KEY:
-            for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
-                for attempt in range(2): # Point 6: Lightweight retry
-                    try:
-                        payload_msg = []
-                        for m in messages:
-                            content = m["content"]
-                            if len(content) > 8000: content = content[:7000] + "..."
-                            payload_msg.append({"role": m["role"], "content": content})
-
-                        r = await self._client.post(
-                            "https://api.groq.com/openai/v1/chat/completions",
-                            json={**payload_base, "messages": payload_msg, "model": model},
-                            headers={"Authorization": f"Bearer {GROQ_KEY}"},
-                            timeout=8.0 # Stricter timeout for failover
-                        )
-                        if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
-                    except: 
-                        await asyncio.sleep(0.5)
-                        continue
-
-        # Tier 2: NVIDIA (Working fallback)
-        if NVIDIA_KEY:
-            for model in ["upstage/solar-10.7b-instruct", "meta/llama-3.1-70b-instruct"]:
+            for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3-32b"]:
                 try:
-                    r = await self._client.post(
-                        "https://integrate.api.nvidia.com/v1/chat/completions",
-                        json={**payload_base, "model": model},
-                        headers={"Authorization": f"Bearer {NVIDIA_KEY}"}
-                    )
-                    if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
-                except: continue
+                    headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+                    payload = {**payload_base, "messages": messages, "model": model}
+                    r = await self._client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=8.0)
+                    if r.status_code == 200:
+                        return r.json()["choices"][0]["message"]["content"].strip()
+                    elif r.status_code == 429:
+                        err_msg = r.text.lower()
+                        if "tpd" in err_msg or "daily" in err_msg:
+                            logger.warning(f"Groq Daily Limit Reached. Switching provider...")
+                            break # Daily limit is account-wide, switch tier
+                        else:
+                            logger.warning(f"Groq Minute Limit. Trying next model...")
+                            continue # Minute limit might be model-specific
+                except Exception as e:
+                    logger.debug(f"Groq {model} failed: {e}")
+                    continue
 
-        # Tier 3: OpenRouter
+        # Tier 2: NVIDIA Chat NIM (Secondary - High Speed)
+        if NVIDIA_KEY:
+            for model in ["upstage/solar-10.7b-instruct", "mistralai/mistral-large-3-675b-instruct-2512"]:
+                try:
+                    url = "https://integrate.api.nvidia.com/v1/chat/completions"
+                    headers = {"Authorization": f"Bearer {NVIDIA_KEY}", "Content-Type": "application/json"}
+                    
+                    # Merge system into first user message for maximum compatibility
+                    combined_messages = []
+                    if len(messages) > 0 and messages[0]["role"] == "system":
+                        sys_content = messages[0]["content"]
+                        first_user_content = next((m["content"] for m in messages if m["role"] == "user"), "")
+                        combined_messages.append({"role": "user", "content": f"INSTRUCTIONS: {sys_content}\n\nUSER QUERY: {first_user_content}"})
+                        # Add rest of the history
+                        combined_messages.extend([m for m in messages if m != messages[0] and m["content"] != first_user_content])
+                    else:
+                        combined_messages = messages
+
+                    payload = {"messages": combined_messages, "model": model, "max_tokens": 1024}
+                    r = await self._client.post(url, json=payload, headers=headers, timeout=7.0)
+                    if r.status_code == 200:
+                        return r.json()["choices"][0]["message"]["content"].strip()
+                except Exception as e:
+                    logger.warning(f"NVIDIA NIM {model} failed: {e}")
+
+        # Tier 3: OpenRouter (Fallback - Emergency)
         if OR_KEY:
+            # Use confirmed working IDs from test_api.py
             for model in ["meta-llama/llama-3.1-70b-instruct", "nvidia/nemotron-3-super-120b-a12b:free"]:
                 try:
-                    r = await self._client.post(
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        json={**payload_base, "model": model},
-                        headers={"Authorization": f"Bearer {OR_KEY}"}
-                    )
-                    if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
-                except: continue
-
+                    url = "https://openrouter.ai/api/v1/chat/completions"
+                    headers = {"Authorization": f"Bearer {OR_KEY}", "Content-Type": "application/json"}
+                    payload = {**payload_base, "messages": messages, "model": model}
+                    r = await self._client.post(url, json=payload, headers=headers, timeout=8.0)
+                    if r.status_code == 200:
+                        return r.json()["choices"][0]["message"]["content"].strip()
+                except:
+                    continue
+        
         return None
 
     def _normalize_query(self, text: str) -> str:
@@ -247,8 +276,8 @@ class QdrantRAGEngine:
         if not vec: return []
 
         try:
-            # Optimized Retrieval Limits (ChatGPT Recommendation)
-            limit = 10 
+            # Optimized Retrieval Limits (Balanced for Details & Tokens)
+            limit = 3
             threshold = 0.35
 
             response = await self._qdrant.query_points(
@@ -275,80 +304,53 @@ class QdrantRAGEngine:
             return[]
 
     async def _rerank(self, query: str, hits: list) -> list[dict]:
-        """Advanced NVIDIA Reranker using custom semantic scoring prompt."""
-        token = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if not token or not hits:
+        """Official NVIDIA Reranker NIM (rerank-qa-mistral-4b) integration."""
+        nvidia_key = os.getenv("NVIDIA_API_KEY", "").strip()
+        if not nvidia_key or not hits:
             return [h.payload for h in hits[:8]]
-
-        async def get_score(chunk: str) -> float:
-            try:
-                url = "https://openrouter.ai/api/v1/chat/completions"
-                headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-                
-                # Using the exact advanced prompt provided by the user
-                prompt = f"""You are a highly accurate semantic relevance ranking system.
-Your task is to evaluate how relevant each retrieved context chunk is to the given user query.
-
-INSTRUCTIONS:
-* Carefully read the user query and the context chunk.
-* Focus on semantic meaning, not just keyword matching.
-* Prioritize chunks that:
-  * Directly answer the question
-  * Contain specific details (fees, eligibility, course info, etc.)
-  * Are clearly related to the user's intent
-* Penalize chunks that:
-  * Contain generic or unrelated information
-  * Include navigation text, menus, or repeated website content
-  * Are vague or lack useful details
-
-SCORING RULES:
-* Assign a relevance score from 0 to 1
-  * 1.0 = Perfect match (direct answer)
-  * 0.7–0.9 = Highly relevant
-  * 0.4–0.6 = Partially relevant
-  * 0.0–0.3 = Irrelevant
-
-OUTPUT FORMAT:
-Return ONLY the score. Do NOT explain.
-
-USER QUERY:
-{query}
-
-CONTEXT:
-{chunk}"""
-                
-                payload = {
-                    "model": "nvidia/rerank-qa-mistral-4b",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 5,
-                    "temperature": 0
-                }
-                
-                r = await self._client.post(url, json=payload, headers=headers)
-                if r.status_code == 200:
-                    score_text = r.json()["choices"][0]["message"]["content"].strip()
-                    match = re.findall(r'\d+\.?\d*', score_text)
-                    return float(match[0]) if match else 0.0
-            except:
-                return 0.2
-            return 0.0
 
         try:
-            # Parallel scoring with NVIDIA model
-            tasks = [get_score(h.payload.get('text', '')) for h in hits[:10]]
-            scores = await asyncio.gather(*tasks)
+            url = "https://ai.api.nvidia.com/v1/retrieval/nvidia/reranking"
+            headers = {
+                "Authorization": f"Bearer {nvidia_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
             
-            scored_hits = []
-            for i, score in enumerate(scores):
-                if score >= 0.4:
-                    scored_hits.append((score, hits[i].payload))
+            # Prepare passages from hits
+            passages = [{"text": h.payload.get('text', '')} for h in hits[:20]]
             
-            scored_hits.sort(key=lambda x: x[0], reverse=True)
-            return [item[1] for item in scored_hits[:6]] if scored_hits else [h.payload for h in hits[:5]]
+            payload = {
+                "model": "nv-rerank-qa-mistral-4b:1",
+                "query": {"text": query},
+                "passages": passages,
+                "truncate": "END"
+            }
             
+            r = await self._client.post(url, json=payload, headers=headers)
+            if r.status_code == 200:
+                data = r.json()
+                # NVIDIA returns a list of rankings with index and logit
+                rankings = data.get("rankings", [])
+                
+                scored_hits = []
+                for item in rankings:
+                    idx = item["index"]
+                    score = item["logit"] # Use logit/score for sorting
+                    if idx < len(hits):
+                        scored_hits.append((score, hits[idx].payload))
+                
+                # Sort by logit score descending
+                scored_hits.sort(key=lambda x: x[0], reverse=True)
+                return [item[1] for item in scored_hits[:6]]
+            else:
+                logger.warning(f"NVIDIA Rerank API Error {r.status_code}: {r.text}")
+                return [h.payload for h in hits[:6]]
         except Exception as e:
-            logger.error(f"NVIDIA Scoring Rerank failed: {e}")
-            return [h.payload for h in hits[:8]]
+            logger.error(f"NVIDIA Rerank failed: {e}")
+            return [h.payload for h in hits[:6]]
+
+    # ── Admin Panel Integrations ──────────────────────────────────────────────
 
 
     # ── Admin Panel Integrations ──────────────────────────────────────────────
@@ -383,9 +385,27 @@ CONTEXT:
     async def add_texts(self, texts: list[str], metadata: list[dict] = None):
         if not self._qdrant: return False
         
-        def chunk_text(t, max_words=400): # Increased for better semantic context
-            words = t.split()
-            return [" ".join(words[i:i+max_words]) for i in range(0, len(words), max_words)]
+        def chunk_text(t, max_chars=1500): 
+            # Smart chunking: try to preserve lines and tables
+            if "|" in t and "---" in t:
+                # If it looks like a table, return as is (tables shouldn't be split)
+                return [t]
+            
+            chunks = []
+            current_chunk = []
+            current_length = 0
+            
+            for line in t.split("\n"):
+                if current_length + len(line) > max_chars and current_chunk:
+                    chunks.append("\n".join(current_chunk))
+                    current_chunk = []
+                    current_length = 0
+                current_chunk.append(line)
+                current_length += len(line) + 1
+                
+            if current_chunk:
+                chunks.append("\n".join(current_chunk))
+            return chunks
         
         points =[]
         for i, text in enumerate(texts):
@@ -394,7 +414,7 @@ CONTEXT:
             for chunk in chunks:
                 vec = await self._get_nvidia_vector(chunk)
                 if vec:
-                    point_id = uuid.uuid4().hex
+                    point_id = str(uuid.uuid4()) # Standard UUID with dashes
                     points.append(
                         PointStruct(
                             id=point_id,
@@ -429,7 +449,7 @@ CONTEXT:
                 limit=limit,
                 with_payload=True
             )
-            return[{"id": r.id, "score": r.score, "payload": r.payload} for r in res.points]
+            return[{"id": str(r.id), "score": r.score, "payload": r.payload, "priority": r.payload.get("priority", 1.0)} for r in res.points]
         except Exception as e:
             logger.error(f"Chunk search failed: {e}")
             return[]
@@ -451,6 +471,44 @@ CONTEXT:
             return True
         except Exception as e:
             logger.error(f"Chunk delete failed: {e}")
+            return False
+
+    async def boost_chunk(self, point_id: str):
+        if not self._qdrant: return False
+        try:
+            # Robust ID handling (convert to int if numeric)
+            try:
+                pid = int(point_id)
+            except ValueError:
+                pid = point_id
+
+            # 1. Fetch current point to get existing payload
+            res = await self._qdrant.retrieve(
+                collection_name=COLLECTION,
+                ids=[pid],
+                with_payload=True
+            )
+            if not res: return False
+            
+            payload = res[0].payload or {}
+            current_priority = payload.get("priority", 1.0)
+            
+            # Convert categorical priority to numeric if needed
+            if isinstance(current_priority, str):
+                priority_map = {"low": 1.0, "medium": 1.5, "high": 2.0, "boosted": 2.5}
+                current_priority = priority_map.get(current_priority.lower(), 1.0)
+                
+            new_priority = float(current_priority) + 0.5 # Safe numeric boost
+            
+            # 2. Update only the priority field
+            await self._qdrant.set_payload(
+                collection_name=COLLECTION,
+                payload={"priority": new_priority},
+                points=[pid]
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Boost failed: {e}")
             return False
 
     def add_documents(self, docs): pass
@@ -495,6 +553,12 @@ CONTEXT:
             search_query += " | Biyani Group of Colleges list, addresses, contact numbers, email, Biyani Girls College, Bright Moon, Beena Mahavidyalaya"
         elif any(w in low_msg for w in ["workshop", "workshops", "linux", "rhcsa", "red hat"]):
             search_query += " | Linux Red Hat workshop (RHCSA), 12-day workshop, hands-on training, system administration, shell scripting, virtualization, upcoming workshops"
+        elif any(w in low_msg for w in ["event", "events", "festival", "fest", "celebration", "annual", "cultural"]):
+            search_query += " | Biyani Group events, cultural festivals, Biyani Mela, Annual Function, Spectrum, seminars, guest lectures, college celebrations"
+        elif any(w in low_msg for w in ["niaa", "nia", "assistant", "chatbot", "help"]):
+            search_query += " | Biyani AI Assistant Niaa, assistant features, chatbot questions, student helper, automated support"
+        elif any(w in low_msg for w in ["campus", "campuses", "location", "vaidehi", "maitreyi", "dhanvantari", "kalwar", "vidhyadhar"]):
+            search_query += " | Biyani Group campus locations, Vaidehi main campus Sector-3 Vidhyadhar Nagar, Maitreyi campus Kalwar, Dhanvantari campus, all campus addresses contact numbers"
         
         # Developer Identity Injection (Specific Trigger)
         dev_info = ""
@@ -513,6 +577,20 @@ CONTEXT:
                 "Highlights: Hands-on training, real-world apps, expert faculty, certificates. "
                 "Concepts: Basic commands, SysAdmin, Shell scripting, Virtualization. "
                 "Upcoming: Another workshop is planned soon. Contact admissions@biyanicolleges.edu.in for details."
+            )
+
+        # Campus format override — suppress table, use readable list
+        campus_note = ""
+        is_campus_query = any(w in low_msg for w in ["campus", "campuses", "location", "vaidehi", "maitreyi", "dhanvantari", "kalwar", "vidhyadhar", "address"])
+        if is_campus_query:
+            campus_note = (
+                "\nFORMAT OVERRIDE FOR THIS QUERY: The user is asking about campus locations. "
+                "DO NOT use a table. Present each campus as a clearly numbered entry with emoji icons. "
+                "Format each campus like:\n"
+                "📍 **Campus Name** \n Address, City, PIN \n 📞 Phone | ✉️ Email\n"
+                "IMPORTANT: After listing all 3 Indian campuses, ALSO include the Overseas Office (Biyani Bio Seeds, Japan) "
+                "using a 🌏 icon. Do NOT skip the overseas office — it is part of the official information.\n"
+                "Keep it warm, clean, and easy to read. No table columns. No GFM table syntax."
             )
         # Greeting short-circuit
         if _is_greeting(user_message):
@@ -537,28 +615,60 @@ CONTEXT:
         else:
             try:
                 # Add strict timeout (Point 6)
+                # Remove hard threshold from query to allow manual boosting
                 response = await asyncio.wait_for(
                     self._qdrant.query_points(
                         collection_name=COLLECTION,
                         query=query_vec,
                         limit=RETRIEVAL_LIMIT_S,
-                        score_threshold=SCORE_THRESHOLD_S, 
                         with_payload=True
                     ),
                     timeout=5.0
                 )
                 
-                # --- CONDITIONAL RERANKING (Point 3) ---
-                # Only rerank if query is complex or long
+                # --- CONDITIONAL RERANKING LOGIC ---
                 keywords = ["fee", "admission", "course", "placement", "hostel", "scholarship", "eligibility"]
                 is_complex_query = len(search_query.split()) > 7 or any(k in search_query.lower() for k in keywords)
                 
-                if is_complex_query and response.points:
-                    # Limit reranker input to max 6 chunks
-                    chunks = await self._rerank(search_query, response.points[:6])
+                # --- MANUAL PRIORITY & THRESHOLDING ---
+                MANUAL_THRESHOLD = 0.28
+                scored_points = []
+                for p in response.points:
+                    try:
+                        # --- ROBUST PRIORITY MAPPING ---
+                        priority = p.payload.get("priority", 1.0)
+                        
+                        # Handle categorical strings found in existing database
+                        if isinstance(priority, str):
+                            priority_map = {"low": 1.0, "medium": 1.5, "high": 2.0, "boosted": 2.5}
+                            priority = priority_map.get(priority.lower(), 1.0)
+                        
+                        # Handle lists if any
+                        if isinstance(priority, list) and len(priority) > 0:
+                            priority = priority[0]
+                        
+                        boost_factor = float(priority) if priority is not None else 1.0
+                        p_score = float(p.score) * boost_factor
+                        
+                        if p_score >= MANUAL_THRESHOLD:
+                            scored_points.append((p_score, p))
+                    except Exception as e:
+                        logger.warning(f"Skipping point due to scoring error: {e}")
+                        continue
+                
+                # Sort by adjusted score
+                scored_points.sort(key=lambda x: x[0], reverse=True)
+                
+                if is_complex_query and scored_points:
+                    # Limit reranker input
+                    top_points = [x[1] for x in scored_points[:6]]
+                    try:
+                        chunks = await self._rerank(search_query, top_points)
+                    except:
+                        chunks = [p.payload for p in top_points[:4]]
                 else:
-                    # Skip reranker for simple queries (Instant fallback)
-                    chunks = [p.payload for p in response.points[:4]]
+                    # Instant fallback (Top 4 boosted)
+                    chunks = [x[1].payload for x in scored_points[:4]]
             except Exception as e:
                 logger.warning(f"Retrieval/Rerank failed: {e}")
                 chunks = []
@@ -598,11 +708,12 @@ CONTEXT:
         # Select top 3 highly relevant chunks (Point 4)
         final_chunks = filtered_chunks[:3]
         
-        # Structured Context Format
+        # Structured Context Format with Source Attribution
         context_parts = []
         for i, c in enumerate(final_chunks):
             content = c.get("text", "").strip()
-            context_parts.append(f"[Section {i+1}]\n{content}")
+            source = c.get("title", "Unknown Source")
+            context_parts.append(f"[Section {i+1} | Source: {source}]\n{content}")
             
         context = clean_text("\n\n".join(context_parts))
         
@@ -627,34 +738,24 @@ CONTEXT:
             "WhatsApp: Click to Chat | Email: admissions@biyanicolleges.org"
         )
 
-        if lang == "Hinglish":
-            tone_guidance = (
-                "Role: Elite Academic Counselor. Tone: Warm, Professional, Natural Hinglish, Highly Smart and Accommodating.\n"
-                "Style: Clear, detailed, and extremely helpful for students. Provide satisfying answers."
-            )
-        else:
-            tone_guidance = (
-                "Role: Elite Academic Counselor. Tone: Professional, Visionary English, Highly Smart and Accommodating.\n"
-                "Style: Clear, detailed, and extremely helpful for students. Provide satisfying answers."
-            )
-
-        # Optimized System Prompt
+        # Token-Optimized System Prompt
         system = (
-            f"{tone_guidance}\n\n"
-            "ROLE: You are the Senior Admission Counselor at Biyani Group of Colleges. Your goal is to provide accurate, structured, and helpful guidance to students and parents.\n"
-            f"{dev_info}\n"
-            f"{workshop_knowledge}\n\n"
-            "BIYANI KNOWLEDGE BASE (PRIMARY SOURCE):\n"
+            f"Role: Senior Admission Counselor at Biyani Group of Colleges. Tone: Warm, Elite, Professional.\n"
+            f"Language: {'Hinglish (Natural)' if lang == 'Hinglish' else 'Professional English'}.\n"
+            f"{dev_info}\n{workshop_knowledge}{campus_note}\n\n"
+            "CONTEXT:\n"
             f"{context}\n\n"
-            "STRICT OPERATIONAL DIRECTIVES:\n"
-            "1. CONTEXT FIRST: Use the provided BIYANI KNOWLEDGE BASE as your primary source of truth. Prioritize it over general knowledge.\n"
-            "2. NO HALLUCINATION: Do NOT invent fees, dates, or specific policies. If the context is missing specific details, provide a general helpful answer based on Biyani's known standards and guide the user to the contact details below.\n"
-            "3. NO 'NO DATA' RESPONSES: Never say 'I don't have this data'. Instead, provide what you know and pivot to helpful next steps (e.g., 'For specific fee breakdowns, our admission cell can provide the latest 2024-25 document...').\n"
-            "4. CLEAR STRUCTURE: Use bullet points for lists, bold text for key terms, and clear headings. Avoid long, dense paragraphs.\n"
-            "5. DYNAMIC TABLES: If the context contains tabular data (like fee structures), ALWAYS render it as a clean Markdown table.\n"
-            "6. PROFESSIONAL TONE: Be warm, encouraging, and professional. You are representing an elite institution.\n"
-            "7. CTA MANDATORY: Conclude your response ONLY with the [CTA] tag. Do NOT type the contact details manually in the main text.\n"
-            "8. NO MANUAL CONTACT INFO: Do not repeat the address, phone numbers, or email in your answer body. The [CTA] tag will handle this automatically.\n"
+            "PERSONA: You are 'Biyani AI Counselor', a dedicated institutional assistant for Biyani Group of Colleges. Your tone is professional, warm, and student-centric.\n\n"
+            "DIRECTIVES:\n"
+            "1. CONVERSATIONAL WRAP: NEVER start with just a table. Begin with a helpful sentence as a counselor. End with a supportive closing note or a call-to-action.\n"
+            "2. LANGUAGE MATCH: Use the user's style (Hinglish/English) naturally.\n"
+            "3. INSTITUTIONAL FOCUS: Only provide information about Biyani Group of Colleges. IGNORE any technical, programming, or coding examples (like JavaScript events) that might appear in the context. Focus on campus life, festivals (Biyani Mela, Spectrum), academic seminars, and workshops.\n"
+            "4. UNIVERSAL TABLE RULES: Render tabular data as a GFM Table. PRESERVE ALL COLUMNS. START with 'S.No.' column (Centered with dots). IMPORTANT: Tables MUST be wrapped in your conversational response.\n"
+            "5. CONTACT POLICY: Show 'Biyani Shikshan / Samiti@grayquest.com' ONLY for EMI/Installment queries. Otherwise, stick to the general [CTA].\n"
+            "6. COMPREHENSIVENESS: Provide the FULL, detailed information from the context. NEVER skip, shorten, or summarize lists, tables, or itemized details. If the context has 50 items, show all 50.\n"
+            "7. GROUNDING: Use ONLY context info. No hallucinations. Maintain institutional pride.\n"
+            "8. NIA ASSISTANT: 'Niaa' is a separate Biyani Virtual Assistant. If asked about Niaa, provide information based on the context. Do NOT claim to be Niaa yourself.\n"
+            "9. CTA: Conclude EVERY response with the [CTA] tag after your closing note.\n"
         )
 
         messages = [{"role": "system", "content": system}]
@@ -662,13 +763,18 @@ CONTEXT:
         if "fees" not in user_message.lower():
             messages.extend(history[-2:])
             
-        # User prompt that encourages dynamic tables rather than forcing a broken hardcoded one
+        # User prompt
         user_prompt = f"USER QUERY: {user_message}"
-        if "fees" in low_msg or "structure" in low_msg or "list" in low_msg:
-            if "fees" not in low_msg and ("course" in low_msg or "list" in low_msg):
-                user_prompt += "\n\nSTRICT REQUIREMENT: Provide a comprehensive list of ALL academic courses mentioned in the context. Output ONLY the names of the courses. Do NOT show any fee amounts. IMPORTANT: EXCLUDE non-academic items like 'Activity fees', 'Stationary fees', 'Bus/Hostel fees', or 'Other charges' from the list of courses."
-            else:
-                user_prompt += "\n\nSTRICT REQUIREMENT: Present the requested data comprehensively. Do not omit any course or item mentioned in the context. If the data has multiple attributes (like fees), format it as a clean Markdown Table dynamically matching the context's columns."
+        if is_campus_query:
+            user_prompt += (
+                "\n\nSTRICT FORMAT: Respond with a warm intro sentence, then list each campus as a numbered "
+                "entry (📍 icon, bold name, address on next line, phone and email). "
+                "After the 3 Indian campuses, add a separate section for the Overseas Office "
+                "(🌏 Biyani Bio Seeds, Japan — include full address, email, and phone). "
+                "NO TABLES. Include ALL locations from the context without skipping any."
+            )
+        elif "fees" in low_msg or "structure" in low_msg or "list" in low_msg:
+            user_prompt += "\n\nSTRICT REQUIREMENT: Provide the complete data in the required GFM Table format. Ensure all courses/items from the context are included."
             
         messages.append({"role": "user", "content": user_prompt})
 

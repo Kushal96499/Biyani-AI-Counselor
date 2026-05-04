@@ -35,11 +35,14 @@ class Settings(BaseSettings):
     APP_ENV: str = "production"
     DEBUG: bool = False
     
-    # Security
-    ADMIN_TOKEN: str = "admin_secret_token_123"
+    # Security - MUST be set via environment variable, no insecure default
+    ADMIN_TOKEN: str = "CHANGE_ME_IN_ENV"
     
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 20
+
+    # Caching Control
+    CACHE_ENABLED: bool = False
 
     model_config = {
         "env_file": ".env",
@@ -47,4 +50,13 @@ class Settings(BaseSettings):
     }
 
 settings = Settings()
+
+# Critical startup validation
+if settings.ADMIN_TOKEN == "CHANGE_ME_IN_ENV":
+    import warnings
+    warnings.warn(
+        "⚠️  SECURITY WARNING: ADMIN_TOKEN is not set in environment variables! "
+        "Set ADMIN_TOKEN in your .env file or Vercel environment before deploying.",
+        stacklevel=2
+    )
 

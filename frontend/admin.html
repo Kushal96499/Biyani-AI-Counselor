@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Biyani AI - Professional Admin Panel</title>
-    
+
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <script>
@@ -24,19 +25,46 @@
         }
     </script>
     <style>
-        body { background-color: #f8f9fa; color: #333; margin: 0; overflow: hidden; }
-        
+        body {
+            background-color: #f8f9fa;
+            color: #333;
+            margin: 0;
+            overflow: hidden;
+        }
+
         /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        
-        .shadow-soft { box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05); }
-        .card-hover { transition: all 0.2s ease; }
-        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .shadow-soft {
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .card-hover {
+            transition: all 0.2s ease;
+        }
+
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
     </style>
 </head>
+
 <body>
     <div id="root"></div>
 
@@ -48,7 +76,7 @@
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [activeTab, setActiveTab] = useState('dashboard');
             const [stats, setStats] = useState(null);
-            
+
             // Add Data State
             const [manualText, setManualText] = useState('');
             const MAX_TEXT_LIMIT = 100000;
@@ -60,7 +88,7 @@
             // Memory Manager State
             const [searchQuery, setSearchQuery] = useState('');
             const [chunks, setChunks] = useState([]);
-            
+
             // Logs State
             const [logs, setLogs] = useState([]);
 
@@ -144,7 +172,7 @@
                     const res = await fetch('/api/admin/stats', { headers: { 'X-Admin-Token': token } });
                     const data = await res.json();
                     setStats(data);
-                } catch(e){}
+                } catch (e) { }
             };
 
             const fetchLogs = async () => {
@@ -152,9 +180,9 @@
                     const res = await fetch('/api/admin/logs', { headers: { 'X-Admin-Token': token } });
                     const data = await res.json();
                     setLogs(data.logs || []);
-                } catch(e){}
+                } catch (e) { }
             };
-            
+
             const handleSearchChunks = async (e) => {
                 e.preventDefault();
                 setLoading(true);
@@ -164,7 +192,7 @@
                         headers: { 'X-Admin-Token': token }
                     });
                     const data = await res.json();
-                    if(data.chunks && data.chunks.length > 0) {
+                    if (data.chunks && data.chunks.length > 0) {
                         setChunks(data.chunks);
                         showNotification(`Found ${data.chunks.length} chunks successfully.`, 'success');
                     } else {
@@ -177,20 +205,38 @@
             };
 
             const handleDeleteChunk = async (id) => {
-                if(!confirm("Warning: Deleting this data is permanent. Continue?")) return;
+                if (!confirm("Warning: Deleting this data is permanent. Continue?")) return;
                 try {
                     const res = await fetch(`/api/admin/delete-chunk/${id}`, {
                         method: 'DELETE',
                         headers: { 'X-Admin-Token': token }
                     });
-                    if(res.ok) {
+                    if (res.ok) {
                         showNotification('✅ Data deleted successfully.', 'success');
                         setChunks(chunks.filter(c => c.id !== id));
                         fetchStats();
                     } else {
                         showNotification('❌ Failed to delete data.', 'error');
                     }
-                } catch(e) {
+                } catch (e) {
+                    showNotification('❌ Network Error.', 'error');
+                }
+            };
+
+            const handleBoostChunk = async (id) => {
+                try {
+                    const res = await fetch(`/api/admin/boost-chunk/${id}`, {
+                        method: 'POST',
+                        headers: { 'X-Admin-Token': token }
+                    });
+                    if (res.ok) {
+                        showNotification('🚀 Chunk boosted! This information will now be prioritized.', 'success');
+                        // Refresh chunks to show new priority
+                        handleSearchChunks({ preventDefault: () => { } });
+                    } else {
+                        showNotification('❌ Failed to boost chunk.', 'error');
+                    }
+                } catch (e) {
                     showNotification('❌ Network Error.', 'error');
                 }
             };
@@ -211,7 +257,7 @@
                         body: JSON.stringify({ text: manualText, source_name: sourceName || 'Manual Entry' })
                     });
                     const data = await res.json();
-                    if(res.ok) {
+                    if (res.ok) {
                         showNotification(`✅ Success! Text added to AI knowledge. (${data.message})`, 'success');
                         setManualText(''); setSourceName(''); fetchStats();
                     } else {
@@ -232,7 +278,7 @@
                         body: JSON.stringify({ url: urlToScrape })
                     });
                     const data = await res.json();
-                    if(res.ok) {
+                    if (res.ok) {
                         showNotification(`✅ URL Scraped Successfully! (${data.message})`, 'success');
                         setUrlToScrape(''); fetchStats();
                     } else {
@@ -249,14 +295,14 @@
                     showNotification('❌ Incorrect password. Deletion cancelled.', 'error');
                     return;
                 }
-                
+
                 if (!confirm("Password verified. Are you 100% completely SURE you want to wipe the database? This cannot be undone.")) return;
-                
+
                 setLoading(true);
                 showNotification('Deleting all data...', 'info');
                 try {
-                    const res = await fetch('/api/admin/clear', { method: 'POST', headers: { 'X-Admin-Token': token }});
-                    if(res.ok) { showNotification('✅ Database cleared successfully.', 'success'); fetchStats(); }
+                    const res = await fetch('/api/admin/clear', { method: 'POST', headers: { 'X-Admin-Token': token } });
+                    if (res.ok) { showNotification('✅ Database cleared successfully.', 'success'); fetchStats(); }
                     else { showNotification('❌ Failed to clear database.', 'error'); }
                 } catch (err) { showNotification('❌ Network error.', 'error'); }
                 setLoading(false);
@@ -267,15 +313,15 @@
                     <div className="min-h-screen flex items-center justify-center bg-gray-100">
                         <div className="bg-white p-10 max-w-md w-full rounded-2xl shadow-soft border-t-8 border-biyani-red relative">
                             <div className="flex justify-center mb-6">
-                                <img src="/assets/Biyani_college_logo.jpg" alt="Logo" className="h-20 object-contain" onError={(e)=>{e.target.style.display='none'}} />
+                                <img src="/assets/Biyani_college_logo.jpg" alt="Logo" className="h-20 object-contain" onError={(e) => { e.target.style.display = 'none' }} />
                             </div>
                             <h2 className="text-2xl font-bold text-center text-biyani-blue mb-1">Biyani AI Admin</h2>
                             <p className="text-gray-500 text-center mb-8 text-sm">Authorized Access Only</p>
-                            
+
                             <form onSubmit={handleLogin} className="space-y-5">
                                 <div>
                                     <label className="text-sm font-semibold text-gray-700 block mb-2">Admin Password</label>
-                                    <input type="password" placeholder="Enter password..." value={token} onChange={(e) => setToken(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-biyani-red focus:border-transparent transition-all" required />
+                                    <input type="password" placeholder="Enter password..." value={token} onChange={(e) => setToken(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-biyani-red focus:border-transparent transition-all" required autoComplete="current-password" />
                                 </div>
                                 <button type="submit" className="w-full bg-biyani-red hover:bg-red-900 text-white p-3 rounded-lg font-bold transition-all shadow-md">
                                     Login
@@ -291,13 +337,13 @@
                     {/* Professional Sidebar */}
                     <div className="w-64 bg-white shadow-soft z-10 flex flex-col border-r border-gray-200">
                         <div className="p-6 border-b border-gray-100 flex flex-col items-center">
-                            <img src="/assets/Biyani_college_logo.jpg" alt="Logo" className="h-16 object-contain mb-3" onError={(e)=>{e.target.style.display='none'}} />
+                            <img src="/assets/Biyani_college_logo.jpg" alt="Logo" className="h-16 object-contain mb-3" onError={(e) => { e.target.style.display = 'none' }} />
                             <h1 className="font-bold text-lg text-biyani-blue">AI Control Panel</h1>
                             <div className="flex items-center gap-2 text-xs font-semibold text-green-600 mt-1 bg-green-50 px-2 py-1 rounded-full border border-green-200">
                                 <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span> Online
                             </div>
                         </div>
-                        
+
                         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                             <button onClick={() => setActiveTab('dashboard')} className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-all flex items-center gap-3 ${activeTab === 'dashboard' ? 'bg-biyani-red text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}`}>
                                 📊 Dashboard
@@ -311,7 +357,7 @@
                             <button onClick={() => { setActiveTab('logs'); fetchLogs(); }} className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-all flex items-center gap-3 ${activeTab === 'logs' ? 'bg-biyani-red text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}`}>
                                 📜 Chat Logs
                             </button>
-                            
+
                             <div className="mt-8 pt-4 border-t border-gray-100">
                                 <button onClick={() => setActiveTab('settings')} className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-all flex items-center gap-3 ${activeTab === 'settings' ? 'bg-red-50 text-red-700 border border-red-200' : 'text-red-600 hover:bg-red-50'}`}>
                                     ⚠️ Clear Data
@@ -328,13 +374,13 @@
 
                     {/* Main Content Area */}
                     <div className="flex-1 p-6 lg:p-10 overflow-y-auto h-full scroll-smooth bg-[#f8f9fa]">
-                        
+
                         {/* Global Notification system */}
                         {notification.show && (
                             <div className={`fixed top-8 right-8 z-50 p-4 rounded-xl shadow-lg font-medium border-l-4 transition-all duration-300 max-w-md animate-[bounce_0.3s_ease-out]
-                                ${notification.type === 'success' ? 'bg-white border-green-500 text-green-700' : 
-                                  notification.type === 'error' ? 'bg-white border-red-500 text-red-700' : 
-                                  'bg-white border-blue-500 text-blue-700'}`}>
+                                ${notification.type === 'success' ? 'bg-white border-green-500 text-green-700' :
+                                    notification.type === 'error' ? 'bg-white border-red-500 text-red-700' :
+                                        'bg-white border-blue-500 text-blue-700'}`}>
                                 <div className="flex items-start gap-3">
                                     {notification.type === 'info' && (
                                         <svg className="animate-spin h-5 w-5 mt-0.5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -358,7 +404,7 @@
                                         Refresh Data
                                     </button>
                                 </header>
-                                
+
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
                                     <div className="bg-white p-8 rounded-2xl shadow-soft border-b-4 border-biyani-red relative overflow-hidden group">
                                         <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition">
@@ -390,12 +436,12 @@
                                         <p className="text-sm text-gray-400 mt-2 font-medium">Groq Accelerated 🚀</p>
                                     </div>
                                 </div>
-                                
+
                                 <h3 className="text-2xl font-bold text-biyani-blue mb-6 flex items-center gap-3">
                                     <span className="bg-red-100 p-2 rounded-lg text-biyani-red">📈</span>
                                     Lifetime Interaction Analytics
                                 </h3>
-                                
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                     <div className="bg-white p-10 rounded-2xl shadow-soft border border-gray-100 flex items-center justify-between group hover:border-biyani-red transition-all">
                                         <div>
@@ -403,7 +449,7 @@
                                             <p className="text-6xl font-black text-biyani-red tracking-tighter">
                                                 {stats ? stats.total_questions : '0'}
                                             </p>
-                                            <p className="text-xs text-gray-400 mt-2 font-medium">Persistent Log-based Data</p>
+                                            <p className="text-xs text-gray-400 mt-2 font-medium">Persistent Redis-based Data</p>
                                         </div>
                                         <div className="bg-red-50 p-6 rounded-full text-biyani-red group-hover:scale-110 transition">
                                             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
@@ -422,6 +468,32 @@
                                             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                                         </div>
                                     </div>
+
+                                    <div className="bg-white p-10 rounded-2xl shadow-soft border border-gray-100 flex items-center justify-between group hover:border-green-500 transition-all">
+                                        <div>
+                                            <p className="text-gray-500 font-bold text-sm uppercase tracking-widest mb-1">Active Users Right Now</p>
+                                            <p className="text-6xl font-black text-green-600 tracking-tighter">
+                                                {stats ? (stats.active_requests || 0) : '0'}
+                                            </p>
+                                            <p className="text-xs text-gray-400 mt-2 font-medium">Live Concurrent Sessions</p>
+                                        </div>
+                                        <div className="bg-green-50 p-6 rounded-full text-green-600 group-hover:scale-110 transition">
+                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-10 rounded-2xl shadow-soft border border-gray-100 flex items-center justify-between group hover:border-yellow-500 transition-all">
+                                        <div>
+                                            <p className="text-gray-500 font-bold text-sm uppercase tracking-widest mb-1">Avg Response Time</p>
+                                            <p className="text-6xl font-black text-yellow-600 tracking-tighter">
+                                                {stats ? `${stats.avg_response_time || 0}s` : '...'}
+                                            </p>
+                                            <p className="text-xs text-gray-400 mt-2 font-medium">Per AI Query (Lifetime Avg)</p>
+                                        </div>
+                                        <div className="bg-yellow-50 p-6 rounded-full text-yellow-600 group-hover:scale-110 transition">
+                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -437,21 +509,21 @@
                                     <div className="bg-white p-8 rounded-xl shadow-soft border border-gray-100">
                                         <h3 className="text-xl font-bold text-biyani-red mb-1">Option 1: Manual Text Entry</h3>
                                         <p className="text-sm text-gray-500 mb-6">Type or paste any notice, event detail, or FAQ.</p>
-                                        
+
                                         <form onSubmit={handleAddText} className="space-y-4">
                                             <div>
                                                 <label className="text-sm font-semibold text-gray-700 mb-1 block">Title / Source Name</label>
-                                                <input type="text" placeholder="e.g., 'Biyani Fee Update 2024'" value={sourceName} onChange={e=>setSourceName(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-biyani-red" required />
+                                                <input type="text" placeholder="e.g., 'Biyani Fee Update 2024'" value={sourceName} onChange={e => setSourceName(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-biyani-red" required />
                                             </div>
-                                             <div>
+                                            <div>
                                                 <div className="flex justify-between items-end mb-1">
                                                     <label className="text-sm font-semibold text-gray-700 block">Information Text</label>
                                                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${manualText.length > MAX_TEXT_LIMIT * 0.9 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
                                                         {manualText.length.toLocaleString()} / {MAX_TEXT_LIMIT.toLocaleString()} characters
                                                     </span>
                                                 </div>
-                                                 <textarea rows="8" placeholder="Paste the text information here..." value={manualText} onChange={e=>{if(e.target.value.length <= MAX_TEXT_LIMIT) setManualText(e.target.value)}} className="w-full p-3 border border-gray-300 rounded-lg resize-none outline-none focus:ring-2 focus:ring-biyani-red" required></textarea>
-                                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-2 gap-3">
+                                                <textarea rows="8" placeholder="Paste the text information here..." value={manualText} onChange={e => { if (e.target.value.length <= MAX_TEXT_LIMIT) setManualText(e.target.value) }} className="w-full p-3 border border-gray-300 rounded-lg resize-none outline-none focus:ring-2 focus:ring-biyani-red" required></textarea>
+                                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-2 gap-3">
                                                     <p className="text-[10px] text-gray-400 italic max-w-[200px] sm:max-w-xs">Large texts will be automatically split into optimized chunks for AI memory.</p>
                                                     <div className="flex items-center gap-2 self-end sm:self-auto">
                                                         <div className="relative">
@@ -492,7 +564,7 @@
                                         <form onSubmit={handleScrapeUrl} className="space-y-4">
                                             <div>
                                                 <label className="text-sm font-semibold text-gray-700 mb-1 block">Website URL</label>
-                                                <input type="url" placeholder="https://www.biyanicolleges.org/..." value={urlToScrape} onChange={e=>setUrlToScrape(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-biyani-red" required />
+                                                <input type="url" placeholder="https://www.biyanicolleges.org/..." value={urlToScrape} onChange={e => setUrlToScrape(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-biyani-red" required />
                                             </div>
                                             <button disabled={loading} type="submit" className="w-full bg-biyani-red hover:bg-red-900 text-white p-3 rounded-lg font-bold transition disabled:opacity-50">
                                                 {loading ? 'Extracting Data...' : 'Scrape Website'}
@@ -510,17 +582,17 @@
                                     <h2 className="text-3xl font-extrabold text-biyani-blue mb-1">Edit Memory</h2>
                                     <p className="text-gray-500">Search for specific saved information and delete outdated details.</p>
                                 </header>
-                                
+
                                 <div className="bg-white p-6 rounded-xl shadow-soft border border-gray-100 mb-6">
                                     <form onSubmit={handleSearchChunks} className="flex gap-4">
-                                        <input type="text" placeholder="Search saved info (e.g., 'fees', 'sakura')..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} className="flex-1 p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-biyani-red text-lg" required />
+                                        <input type="text" placeholder="Search saved info (e.g., 'fees', 'sakura')..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="flex-1 p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-biyani-red text-lg" required />
                                         <button disabled={loading} type="submit" className="bg-biyani-blue hover:bg-blue-900 text-white px-8 rounded-lg font-bold transition disabled:opacity-50 whitespace-nowrap">
                                             Search Data
                                         </button>
                                     </form>
                                     <p className="text-sm text-gray-500 mt-3">This searches the AI database exactly the way the chatbot does to find relevant information.</p>
                                 </div>
-                                
+
                                 <div className="space-y-4 pb-10">
                                     {chunks.map((c, i) => (
                                         <div key={i} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-6 items-start hover:shadow-md transition">
@@ -529,15 +601,23 @@
                                                     <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">
                                                         Match Score: {(c.score * 100).toFixed(1)}%
                                                     </span>
+                                                    {c.priority > 1 && (
+                                                        <span className="px-3 py-1 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">
+                                                            🚀 Priority: {c.priority.toFixed(1)}x
+                                                        </span>
+                                                    )}
                                                 </div>
-                                                <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 text-gray-800 text-sm leading-relaxed mb-3">
+                                                <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 text-gray-800 text-sm leading-relaxed mb-3 whitespace-pre-wrap font-mono overflow-x-auto">
                                                     {c.payload && c.payload.text ? c.payload.text : <span className="italic text-gray-500">Empty data.</span>}
                                                 </div>
                                                 <div className="text-xs font-semibold text-biyani-blue bg-blue-50 inline-block px-3 py-1 rounded">
                                                     Source: {c.payload ? (c.payload.url || c.payload.title || c.payload.source_type || 'Unknown') : 'Unknown'}
                                                 </div>
                                             </div>
-                                            <div className="w-full md:w-auto">
+                                            <div className="w-full md:w-auto flex flex-col gap-2">
+                                                <button onClick={() => handleBoostChunk(c.id)} title="Increase rank of this chunk" className="w-full md:w-auto px-6 py-2 bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white border border-purple-200 rounded-lg text-sm font-bold transition">
+                                                    🚀 Boost Rank
+                                                </button>
                                                 <button onClick={() => handleDeleteChunk(c.id)} className="w-full md:w-auto px-6 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 rounded-lg text-sm font-bold transition">
                                                     Delete
                                                 </button>
@@ -560,14 +640,14 @@
                                     <h2 className="text-3xl font-extrabold text-biyani-blue mb-1">Chat Logs</h2>
                                     <p className="text-gray-500">Read what students are asking the chatbot right now.</p>
                                 </header>
-                                
+
                                 <div className="space-y-6">
                                     {logs.length === 0 ? (
                                         <div className="bg-white p-10 text-center rounded-xl shadow-soft border border-gray-100">
                                             <p className="text-gray-500 font-semibold">No one has chatted with the bot today yet.</p>
                                         </div>
                                     ) : null}
-                                    
+
                                     {logs.map((session, i) => (
                                         <div key={i} className="bg-white rounded-xl shadow-soft border border-gray-100 overflow-hidden">
                                             <div className="bg-gray-50 p-4 border-b border-gray-100 flex justify-between items-center">
@@ -577,11 +657,10 @@
                                             <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto bg-[#f8f9fa]">
                                                 {session.messages.map((m, j) => (
                                                     <div key={j} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                                        <div className={`max-w-[80%] p-4 rounded-xl ${
-                                                            m.role === 'user' 
-                                                            ? 'bg-biyani-blue text-white rounded-tr-none' 
+                                                        <div className={`max-w-[80%] p-4 rounded-xl ${m.role === 'user'
+                                                            ? 'bg-biyani-blue text-white rounded-tr-none'
                                                             : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none shadow-sm'
-                                                        }`}>
+                                                            }`}>
                                                             <div className="text-xs font-bold mb-1 opacity-70">
                                                                 {m.role === 'user' ? 'Student' : 'Biyani AI'}
                                                             </div>
@@ -602,7 +681,7 @@
                                     <h2 className="text-3xl font-extrabold text-biyani-red mb-1">Danger Zone</h2>
                                     <p className="text-gray-500">Be careful. These actions cannot be undone.</p>
                                 </header>
-                                
+
                                 <div className="bg-white p-8 rounded-xl shadow-soft border border-red-200 relative overflow-hidden">
                                     <div className="flex flex-col md:flex-row gap-8 items-center justify-between">
                                         <div>
@@ -629,4 +708,5 @@
         root.render(<AdminApp />);
     </script>
 </body>
+
 </html>
