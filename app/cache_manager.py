@@ -8,9 +8,9 @@ import numpy as np
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Ensure env is loaded before class instantiation
+# Ensure env is loaded before class instantiation, with override=True to force .env values
 ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(ROOT / ".env")
+load_dotenv(ROOT / ".env", override=True)
 
 logger = logging.getLogger("cache_manager")
 
@@ -20,11 +20,16 @@ class RedisCacheManager:
         self.token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip('"')
         self.version = "v1"
         self.client = httpx.AsyncClient(timeout=5.0)
-        from app.config import settings
-        self.is_active = bool(self.url and self.token and settings.CACHE_ENABLED)
-        
-        if not self.is_active:
-            reason = "Missing credentials" if not (self.url and self.token) else "Disabled via settings"
+
+        # Read directly from os.getenv — avoids pydantic Settings import-order issues
+        cache_env = os.getenv("CACHE_ENABLED", "False").strip().strip('"').lower()
+        cache_enabled = cache_env in ("true", "1", "yes")
+        self.is_active = bool(self.url and self.token and cache_enabled)
+
+        if self.is_active:
+            logger.info(f"Redis Cache is ACTIVE ✅ (URL: {self.url[:30]}...)")
+        else:
+            reason = "Missing credentials" if not (self.url and self.token) else f"CACHE_ENABLED={cache_env}"
             logger.warning(f"Redis Cache is INACTIVE: {reason}")
 
     def _normalize_query(self, query: str) -> str:
