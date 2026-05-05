@@ -582,6 +582,8 @@ class QdrantRAGEngine:
             search_query += " | Institutional affiliations, accreditations, approval bodies, UGC, NAAC A Grade, AICTE, NCTE, PCI, BCI, Rajasthan University, RTU, RUHS, affiliation details for all departments"
         elif any(w in low_msg for w in ["campus", "campuses", "location", "vaidehi", "maitreyi", "dhanvantari", "kalwar", "vidhyadhar"]):
             search_query += " | Biyani Group campus locations, Vaidehi main campus Sector-3 Vidhyadhar Nagar, Maitreyi campus Kalwar, Dhanvantari campus, all campus addresses contact numbers"
+        elif any(w in low_msg for w in ["placement", "placements", "placed", "recruit", "recruiter", "package", "lpa", "stats", "statistics"]):
+            search_query += " | Placement statistics Biyani Group of Colleges, year-wise placement percentage, highest package, average package, top recruiters list, companies visited, corporate tie-ups"
         
         # Developer Identity Injection (Specific Trigger)
         dev_info = ""
@@ -778,6 +780,9 @@ class QdrantRAGEngine:
             "CONTEXT:\n"
             f"{context}\n\n"
             "PERSONA: You are 'Biyani AI Counselor', a dedicated institutional assistant for Biyani Group of Colleges. Your tone is professional, warm, and student-centric.\n\n"
+            "STRICT RULES:\n"
+            "- NEVER include internal reasoning, thinking, or 'Let me check' text in your output. Start directly with the greeting.\n"
+            "- Answer ONLY based on the CONTEXT provided. If numerical stats (like 87% placement, 12 LPA) are in context, present them exactly.\n\n"
             "DIRECTIVES:\n"
             "1. CONVERSATIONAL WRAP: NEVER start with just a table. Begin with a warm, helpful sentence as a counselor. End with a supportive closing note.\n"
             "2. LANGUAGE MATCH: Use the user's style (Hinglish/English) naturally.\n"
@@ -816,7 +821,9 @@ class QdrantRAGEngine:
                 "NO TABLES. Include ALL locations from the context without skipping any."
             )
         elif any(w in low_msg for w in ["fees", "structure", "list", "affiliation", "accreditation"]):
-            user_prompt += "\n\nSTRICT REQUIREMENT: Provide the complete data in the required GFM Table format. Ensure all details (Department, Affiliation, Approval, Accreditation, Courses) from the context are included."
+            user_prompt += "\n\nSTRICT REQUIREMENT: Provide the complete data in the required GFM Table format. Ensure all details from the context are included."
+        elif any(w in low_msg for w in ["placement", "stats", "statistics"]):
+            user_prompt += "\n\nSTRICT REQUIREMENT: Do NOT use a table for placements. Instead, provide a 'smart' professional summary using bullet points (•) for key data points. Only include real numbers/stats if they are explicitly present in the context; otherwise, speak generally about our recruiters and drives. NEVER include EMI/installment emails here."
             
         messages.append({"role": "user", "content": user_prompt})
 
