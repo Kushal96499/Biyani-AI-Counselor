@@ -8,22 +8,19 @@
 
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Inter', 'sans-serif'] },
-                    colors: {
-                        biyani: { red: '#8b0000', blue: '#001e61', lightbg: '#f8f9fa' }
-                    }
-                }
-            }
+    <style type="text/tailwindcss">
+        /* Note: Your editor might show a warning for @theme, but it works perfectly in the browser */
+        @theme {
+            --font-sans: "Inter", "sans-serif";
+            --color-biyani-red: #8b0000;
+            --color-biyani-blue: #001e61;
+            --color-biyani-lightbg: #f8f9fa;
         }
-    </script>
+    </style>
     <style>
         body {
             background-color: #f8f9fa;
@@ -478,7 +475,7 @@
                                             <p className="text-xs text-gray-400 mt-2 font-medium">Live Concurrent Sessions</p>
                                         </div>
                                         <div className="bg-green-50 p-6 rounded-full text-green-600 group-hover:scale-110 transition">
-                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
                                         </div>
                                     </div>
 
@@ -491,7 +488,7 @@
                                             <p className="text-xs text-gray-400 mt-2 font-medium">Per AI Query (Lifetime Avg)</p>
                                         </div>
                                         <div className="bg-yellow-50 p-6 rounded-full text-yellow-600 group-hover:scale-110 transition">
-                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                                         </div>
                                     </div>
                                 </div>
