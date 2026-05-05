@@ -578,6 +578,8 @@ class QdrantRAGEngine:
             search_query += " | Biyani Group events, cultural festivals, Biyani Mela, Annual Function, Spectrum, seminars, guest lectures, college celebrations"
         elif any(w in low_msg for w in ["niaa", "nia", "assistant", "chatbot", "help"]):
             search_query += " | Biyani AI Assistant Niaa, assistant features, chatbot questions, student helper, automated support"
+        elif any(w in low_msg for w in ["affiliation", "accreditation", "approval", "approved", "naac", "aicte", "ncte", "pci", "bci", "ugc"]):
+            search_query += " | Institutional affiliations, accreditations, approval bodies, UGC, NAAC A Grade, AICTE, NCTE, PCI, BCI, Rajasthan University, RTU, RUHS, affiliation details for all departments"
         elif any(w in low_msg for w in ["campus", "campuses", "location", "vaidehi", "maitreyi", "dhanvantari", "kalwar", "vidhyadhar"]):
             search_query += " | Biyani Group campus locations, Vaidehi main campus Sector-3 Vidhyadhar Nagar, Maitreyi campus Kalwar, Dhanvantari campus, all campus addresses contact numbers"
         
@@ -740,7 +742,7 @@ class QdrantRAGEngine:
         
         # Cap context size to prevent payload overflow (413 on Groq, timeout on NVIDIA)
         # 5 chunks retrieved for quality, but we only send what fits
-        MAX_CONTEXT_CHARS = 6500
+        MAX_CONTEXT_CHARS = 8000
         if len(context) > MAX_CONTEXT_CHARS:
             context = context[:MAX_CONTEXT_CHARS] + "\n...[context truncated for token limit]"
         
@@ -813,8 +815,8 @@ class QdrantRAGEngine:
                 "(🌏 Biyani Bio Seeds, Japan — include full address, email, and phone). "
                 "NO TABLES. Include ALL locations from the context without skipping any."
             )
-        elif "fees" in low_msg or "structure" in low_msg or "list" in low_msg:
-            user_prompt += "\n\nSTRICT REQUIREMENT: Provide the complete data in the required GFM Table format. Ensure all courses/items from the context are included."
+        elif any(w in low_msg for w in ["fees", "structure", "list", "affiliation", "accreditation"]):
+            user_prompt += "\n\nSTRICT REQUIREMENT: Provide the complete data in the required GFM Table format. Ensure all details (Department, Affiliation, Approval, Accreditation, Courses) from the context are included."
             
         messages.append({"role": "user", "content": user_prompt})
 
