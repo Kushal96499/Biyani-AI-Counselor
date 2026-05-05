@@ -837,7 +837,7 @@ class QdrantRAGEngine:
         elif any(w in low_msg for w in ["fees", "structure", "list", "affiliation", "accreditation"]):
             user_prompt += "\n\nSTRICT REQUIREMENT: Provide the complete data in the required GFM Table format. Ensure all details from the context are included."
         elif any(w in low_msg for w in ["placement", "stats", "statistics"]):
-            user_prompt += "\n\nSTRICT REQUIREMENT: Do NOT use a table for placements. Instead, provide a 'smart' professional summary using bullet points (•) for key data points. Only include real numbers/stats if they are explicitly present in the context; otherwise, speak generally about our recruiters and drives. NEVER include EMI/installment emails here."
+            user_prompt += "\n\nSTRICT REQUIREMENT: Do NOT use a table for placements. Instead, provide a 'smart' professional summary using bullet points (-) for key data points. Only include real numbers/stats if they are explicitly present in the context; otherwise, speak generally about our recruiters and drives. NEVER include EMI/installment emails here."
             
         messages.append({"role": "user", "content": user_prompt})
 
