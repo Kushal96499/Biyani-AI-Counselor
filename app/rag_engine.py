@@ -177,6 +177,9 @@ class QdrantRAGEngine:
                 try:
                     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
                     payload = {**payload_base, "messages": messages, "model": model}
+                    # qwen3-32b has thinking mode ON by default — must disable it explicitly
+                    if "qwen3" in model:
+                        payload["thinking"] = {"type": "disabled"}
                     r = await self._client.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=8.0)
                     if r.status_code == 200:
                         logger.info(f"Groq [{model}] responded OK")
@@ -234,17 +237,26 @@ class QdrantRAGEngine:
             logger.warning("All NVIDIA NIM models exhausted. Moving to OpenRouter...")
 
         # Tier 3: OpenRouter (Fallback - Emergency)
+        # Use ONLY standard instruction-tuned models — NO reasoning/thinking models
         if OR_KEY:
-            # Use confirmed working IDs from test_api.py
-            for model in ["meta-llama/llama-3.1-70b-instruct", "nvidia/nemotron-3-super-120b-a12b:free"]:
+            or_models = [
+                "meta-llama/llama-3.1-8b-instruct:free",   # Fast, reliable, no thinking
+                "mistralai/mistral-7b-instruct:free",       # Proven clean output
+                "meta-llama/llama-3.1-70b-instruct",        # Paid fallback if free limits hit
+            ]
+            for model in or_models:
                 try:
                     url = "https://openrouter.ai/api/v1/chat/completions"
                     headers = {"Authorization": f"Bearer {OR_KEY}", "Content-Type": "application/json"}
                     payload = {**payload_base, "messages": messages, "model": model}
-                    r = await self._client.post(url, json=payload, headers=headers, timeout=8.0)
+                    r = await self._client.post(url, json=payload, headers=headers, timeout=20.0)
                     if r.status_code == 200:
+                        logger.info(f"OpenRouter [{model}] responded OK")
                         return r.json()["choices"][0]["message"]["content"].strip()
-                except:
+                    else:
+                        logger.warning(f"OpenRouter [{model}] returned {r.status_code}")
+                except Exception as e:
+                    logger.warning(f"OpenRouter [{model}] exception: {e}")
                     continue
         
         return None
@@ -564,6 +576,8 @@ class QdrantRAGEngine:
         low_msg = user_message.lower()
         if any(w in low_msg for w in ["fees", "fee", "paisa", "rupaye", "amount"]):
             search_query += " | Detailed fees structure, all courses, additional charges Biyani Group of Colleges"
+        elif any(w in low_msg for w in ["admission", "apply", "apply", "process", "enroll", "join", "form", "document", "eligibility", "kaise", "lena hai", "apply karna"]):
+            search_query += " | Admission process Biyani Group of Colleges, online offline application, required documents, Aadhar, transfer certificate, migration certificate, provisional fee, eligibility criteria, direct admission, personal interview, MBA MCA entrance"
         elif any(w in low_msg for w in ["scholarship", "scholarships", "yojana", "discount", "concession", "scheme"]):
             search_query += " | Scholarships at Biyani Group of Colleges, Kalpana Chawla, Merit scholarship, Samaj Kalyan Yojana eligibility and amount"
         elif any(w in low_msg for w in ["courses", "course", "subject", "subjects", "detail", "syllabus"]):
